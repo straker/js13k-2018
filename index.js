@@ -394,7 +394,7 @@ loop = kontra.gameLoop({
           }
         }
       }
-      if (ship.y < 0 || ship.y > kontra.canvas.height) {
+      if (ship.y < -50 || ship.y > kontra.canvas.height + 50) {
         gameOver();
       }
     }
