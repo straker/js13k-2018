@@ -249,8 +249,7 @@ function gameOver() {
  * Show win screen.
  */
 function win() {
-  loop.stop
-  ();
+  loop.stop();
   setBestTime();
   show(winText);
   show(customUpload);
