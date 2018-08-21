@@ -15,6 +15,72 @@ let peaks;  // peak data of the audio file
 let waveData;  // array of wave audio objects based on peak data
 let startBuffer;  // duplicated wave data added to the front of waveData to let the game start in the middle of the screen
 let loop;  // game loop
+let songName = 'superhero.ogg';  // name of the song
+let bestTimes;  // object of best times for all songs
+let bestTime;  // best time for song
+
+
+
+
+//------------------------------------------------------------
+// Utility functions
+//------------------------------------------------------------
+
+/**
+ * Get the time in ss:ms format.
+ * @param {number} time
+ * @returns {string}
+ */
+function getTime(time) {
+  return ('' + ((time * 100 | 0) / 100)).replace('.', ':');
+}
+
+/**
+ * Get seconds from time.
+ * @param {string} time
+ * @returns {string}
+ */
+function getSeconds(time) {
+  return time.substr(0, time.indexOf(':'));
+}
+
+/**
+ * Get milliseconds from time.
+ * @param {string} time
+ * @returns {string}
+ */
+function getMilliseconds(time) {
+  return time.substr(time.indexOf(':') + 1);
+}
+
+/**
+ * Get the best time for the song.
+ */
+function getBestTime() {
+  bestTimes = kontra.store.get('js13k-2018:best') || {};
+  bestTime = bestTimes[songName] || '0:00';
+}
+
+/**
+ * Set the best time for the song.
+ */
+function setBestTime() {
+  if (isBetterTime(audio.currentTime)) {
+    bestTime = getTime(audio.currentTime);
+    bestTimes[songName] = bestTime;
+    kontra.store.set('js13k-2018:best', bestTimes);
+  }
+}
+
+/**
+ * Check to see if the time is better than the best time.
+ * @param {number} time
+ * @returns {boolean}
+ */
+function isBetterTime(time) {
+  return time > parseInt(bestTime.replace(':', '.'));
+}
+
 
 
 
@@ -120,6 +186,7 @@ uploadFile.addEventListener('change', uploadAudio);
 async function uploadAudio(e) {
   show(loader);
   hide(introText);
+  hide(winText);
   hide(startBtn);
   hide(customUpload);
   hide(restartBtn);
@@ -128,7 +195,10 @@ async function uploadAudio(e) {
   objectUrl = URL.createObjectURL(file);
 
   await generateWaveData(objectUrl);
-  songTitle.textContent = 'Playing: ' + uploadFile.value.replace(/^.*fakepath/, '').substr(1);
+  URL.revokeObjectURL(objectUrl);
+  songName = uploadFile.value.replace(/^.*fakepath/, '').substr(1);
+  songTitle.textContent = 'Playing: ' + songName;
+  getBestTime();
 
   hide(loader);
   show(songTitle);
@@ -169,6 +239,7 @@ function start() {
 function gameOver() {
   audio.pause();
   loop.stop();
+  setBestTime();
   show(restartBtn);
   show(customUpload);
   restartBtn.focus();
@@ -178,6 +249,8 @@ function gameOver() {
  * Show win screen.
  */
 function win() {
+  loop.pause();
+  setBestTime();
   show(winText);
   show(customUpload);
 }
@@ -273,7 +346,7 @@ async function generateWaveData(url) {
         counter = 0;
         lastPos = pos;
         pos = mid + (Math.random() * kontra.canvas.height - mid);  // generate random number between -300 and 300
-        gapDistance = 200 + (Math.random() * 200 - 100);  // generate random number between 100 and 300
+        gapDistance = 300 + (Math.random() * 200 - 100);  // generate random number between 200 and 400
         step = (pos - lastPos) / gapDistance;
       }
 
@@ -390,12 +463,12 @@ loop = kontra.gameLoop({
                ship.y + ship.height > wave.y) ||
               (ship.y < botY + wave.height + wave.offset &&
                ship.y + ship.height > botY)) {
-            gameOver();
+            // gameOver();
           }
         }
       }
       if (ship.y < -50 || ship.y > kontra.canvas.height + 50) {
-        gameOver();
+        // gameOver();
       }
     }
 
@@ -405,12 +478,49 @@ loop = kontra.gameLoop({
       ship.points.shift();
     }
 
-    // score
+    // time
     ctx.fillStyle = '#222';
-    ctx.font = "14px 'Lucida Console', Monaco, monospace";
-    ctx.fillRect(0, 0, 95, 20);
+
+    // top bar
+    ctx.beginPath();
+    ctx.moveTo(0, 43);
+    ctx.lineTo(80, 43);
+    for (let i = 1; i <= 10; i++) {
+      ctx.lineTo(80+i*2, 43-i*2);
+      ctx.lineTo(80+i*2+2, 43-i*2);
+    }
+    ctx.lineTo(170, 23);
+    for (let i = 1; i <= 10; i++) {
+      ctx.lineTo(170+i*2, 23-i*2);
+      ctx.lineTo(170+i*2+2, 23-i*2);
+    }
+    ctx.lineTo(192, 0);
+    ctx.lineTo(0, 0);
+    ctx.closePath();
+    ctx.fill();
+
+    // bottom bar
+    ctx.beginPath();
+    let y = kontra.canvas.height - 25;
+    ctx.moveTo(0, y);
+    ctx.lineTo(125, y);
+    for (let i = 1; i <= 10; i++) {
+      ctx.lineTo(125+i*2, y+i*2);
+      ctx.lineTo(125+i*2+2, y+i*2);
+    }
+    ctx.lineTo(147, kontra.canvas.height);
+    ctx.lineTo(0, kontra.canvas.height);
+    ctx.closePath();
+    ctx.fill();
+
     ctx.fillStyle = '#fdfdfd';
-    ctx.fillText('Score: ' + (audio.currentTime | 0), 5, 15);
+    let time = getTime(audio.currentTime);
+
+    ctx.font = "40px 'Lucida Console', Monaco, monospace";
+    ctx.fillText(getSeconds(time).padStart(3, ' '), 5, 35);
+    ctx.font = "18px 'Lucida Console', Monaco, monospace";
+    ctx.fillText(':' + getMilliseconds(time).padStart(2, '0') + '\nTime', 80, 17);
+    ctx.fillText(bestTime.padStart(6, ' ') + '\nBest', 5, kontra.canvas.height - 5);
 
     if (waveData[waveData.length - 1].x - move <= kontra.canvas.width / 2) {
       win();
@@ -429,6 +539,7 @@ async function main() {
 
   // music from https://opengameart.org/content/adventure-theme
   await generateWaveData('./SuperHero_original.ogg');
+  getBestTime();
   intro();
 }
 main();
