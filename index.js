@@ -463,12 +463,12 @@ loop = kontra.gameLoop({
                ship.y + ship.height > wave.y) ||
               (ship.y < botY + wave.height + wave.offset &&
                ship.y + ship.height > botY)) {
-            // gameOver();
+            gameOver();
           }
         }
       }
       if (ship.y < -50 || ship.y > kontra.canvas.height + 50) {
-        // gameOver();
+        gameOver();
       }
     }
 
