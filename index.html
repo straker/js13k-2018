@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0"/>
   <title></title>
   <style>
   html,
@@ -18,16 +19,21 @@
     justify-content: center;
   }
 
-  [hidden] {
-    display: none !important;
+  .hidden {
+    opacity: 0 !important;
+    position: absolute;
+    z-index: -1;
   }
 
   .wrapper {
     max-width: 640px;
-    max-height: 640px;
+    max-height: 960px;
     width: 100%;
     height: 100%;
     position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .wrapper:after {
@@ -42,6 +48,7 @@
   }
 
   canvas {
+    display: block;
     outline: 1px solid white;
     max-width: 100%;
     max-height: 100%;
@@ -52,76 +59,18 @@
     background-size: 15px 15px;
   }
 
-  .ui {
+  [hidden] {
+    visibility: hidden;
+    display: block;
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-    padding: 100px;
-    text-align: center;
-    color: #fdfdfd;
-    z-index: 5;
+    z-index: -1;
   }
 
-  .btn {
-    font-size: inherit;
-    font-family: inherit;
-    color: inherit;
-    background: none;
-    border: 1px solid #fdfdfd;
-    border-radius: 10px;
-    padding: 10px 25px;
-    background: #222;
-    outline: none;
-  }
-
-  .loader {
-    width: 150px;
-    height: 150px;
-    border-radius: 50%;
-    border: 1px solid #fdfdfd;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .btn,
-  .loader {
-    box-shadow: 0 0 15px #00a3dc, inset 0 0 15px #00a3dc, 0 0 10px #00a3dc, inset 0 0 10px #00a3dc, 0 0 5px #00a3dc, inset 0 0 5px #00a3dc;
-  }
-
-  .btn:hover,
-  .btn:focus,
-  .btn:active,
-  .custom-upload:hover .btn {
-    box-shadow: 0 0 15px #f00, inset 0 0 15px #f00, 0 0 10px #f00, inset 0 0 10px #f00, 0 0 5px #f00, inset 0 0 5px #f00;
-  }
-
-  .custom-upload {
-    margin-top: 1em;
-    position: relative;
-  }
-
-  #songTitle {
-    margin-top: 0;
-    font-weight: bold;
-    font-size: 40px;
-  }
-
-  #uploadFile {
-    position: absolute;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    right: 0;
-    opacity: 0;
-    width: 100%;
-    padding: 0;
+  #srlive {
+    position: absolute !important;
+    height: 1px; width: 1px;
+    overflow: hidden;
+    clip: rect(1px, 1px, 1px, 1px);
   }
   </style>
 </head>
@@ -130,19 +79,10 @@
 <script src="wavesurfer.js"></script>
 
 <div class="wrapper">
-  <canvas width="640" height="640"></canvas>
-  <div class="ui">
-    <div class="loader" id="loader">Loading</div>
-    <p id="introText" hidden>Press and release Spacebar to avoid the audio wave</p>
-    <p id="songTitle" hidden></p>
-    <p id="winText" hidden>Song Completed</p>
-    <button class="btn" id="startBtn" hidden>Start</button>
-    <button class="btn" id="restartBtn" hidden>Restart</button>
-    <div class="custom-upload" id="customUpload" hidden>
-      <button class="btn" id="uploadBtn">Upload Song</button>
-      <input type="file" class="btn" id="uploadFile" aria-label="Upload Song">
-    </div>
+  <canvas width="640" height="960" tabindex="0" autofocus aria-label="Use arrow keys to move cursor, Spacebar to select"></canvas>
 </div>
+<input type="file" id="uploadFile" tabindex="-1" hidden>
+<div aria-live="polite" aria-atomic="true" role="region" id="srlive"></div>
 
 <script src="index.js"></script>
 </body>

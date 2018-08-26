@@ -1,4 +1,6 @@
+// (function() {
 kontra.init();
+kontra.canvas.focus();
 
 //------------------------------------------------------------
 // Global variables
@@ -6,24 +8,45 @@ kontra.init();
 const ctx = kontra.context;
 const mid = kontra.canvas.height / 2;  // midpoint of the canvas
 
+const osCanvas = document.createElement('canvas');  // used to save the main context state
+const osCtx = osCanvas.getContext('2d');
+osCanvas.width = kontra.canvas.width;
+osCanvas.height = kontra.canvas.height;
+
 const waveWidth = 2;
-const waveHeight = kontra.canvas.height / 3;
+const waveHeight = 215;
 const maxLength = kontra.canvas.width / waveWidth + 3 | 0; // maximum number of peaks to show on screen
+const defaultOptions = {
+  music: 1,
+  uiScale: 1,
+  gameSpeed: 1,
+  intensity: 1,
+};
 
 let audio;  // audio file for playing/pausing
 let peaks;  // peak data of the audio file
 let waveData;  // array of wave audio objects based on peak data
 let startBuffer;  // duplicated wave data added to the front of waveData to let the game start in the middle of the screen
 let loop;  // game loop
-let songName = 'superhero.ogg';  // name of the song
+let songName = 'SuperHero.mp3';  // name of the song
 let bestTimes;  // object of best times for all songs
 let bestTime;  // best time for song
+let activeScene = {};  // currently active scene
+let focusedBtn;  // currently focused button
+let options = Object.assign(  // options for the game
+  {},
+  defaultOptions,
+  JSON.parse(localStorage.getItem('js13k-2018:options'))
+);
+let fontMeasurement;  // size of text based
+setFontMeasurement();
+
 
 
 
 
 //------------------------------------------------------------
-// Utility functions
+// Time functions
 //------------------------------------------------------------
 
 /**
@@ -173,96 +196,254 @@ function neonLine(points, move, r, g, b) {
 
 
 //------------------------------------------------------------
+// Event Handlers
+//------------------------------------------------------------
+let touchPressed;
+window.addEventListener('mousedown', handleOnDown);
+window.addEventListener('touchstart', handleOnDown);
+window.addEventListener('mouseup', handleOnUp);
+window.addEventListener('touchend', handleOnUp);
+window.addEventListener('blur', handleOnUp);
+window.addEventListener('beforeunload', () => {
+  URL.revokeObjectURL(objectUrl);
+});
+
+/**
+ * Detect if a button was clicked.
+ */
+function handleOnDown(e) {
+  touchPressed = true;
+
+  let pageX, pageY;
+  if (e.type.indexOf('mouse') !== -1) {
+    pageX = e.pageX;
+    pageY = e.pageY;
+  }
+  else {
+    // touchstart uses touches while touchend uses changedTouches
+    // @see https://stackoverflow.com/questions/17957593/how-to-capture-touchend-coordinates
+    pageX = (e.touches[0] || e.changedTouches[0]).pageX;
+    pageY = (e.touches[0] || e.changedTouches[0]).pageY;
+  }
+
+  let x = pageX - kontra.canvas.offsetLeft;
+  let y = pageY - kontra.canvas.offsetTop;
+  let el = kontra.canvas;
+
+  while ( (el = el.offsetParent) ) {
+    x -= el.offsetLeft;
+    y -= el.offsetTop;
+  }
+
+  // take into account the canvas scale
+  let scale = kontra.canvas.offsetHeight / kontra.canvas.height;
+  x /= scale;
+  y /= scale;
+
+  activeScene.children.forEach(child => {
+    if (!child.disabled && child.onDown && child.collidesWith({
+      // center the click
+      x: x - 5,
+      y: y - 5,
+      width: 10,
+      height: 10
+    })) {
+      child.onDown();
+    }
+  });
+}
+
+/**
+ * Release button press.
+ */
+function handleOnUp() {
+  touchPressed = false;
+}
+
+function handleArrowDownUp(inc) {
+  let index = activeScene.children.indexOf(focusedBtn);
+
+  while (true) {
+    index += inc;
+
+    if (index < 0) {
+      index = activeScene.children.length - 1;
+    }
+    else if (index > activeScene.children.length - 1) {
+      index = 0;
+    }
+
+    let child = activeScene.children[index];
+
+    if (child && child.focus) {
+      child.focus();
+      break;
+    }
+  }
+
+}
+
+kontra.keys.bind('space', () => {
+  if (focusedBtn && focusedBtn.onDown) focusedBtn.onDown();
+});
+
+kontra.keys.bind('up', (e) => {
+  e.preventDefault();
+  handleArrowDownUp(-1);
+});
+
+kontra.keys.bind('down', (e) => {
+  e.preventDefault();
+  handleArrowDownUp(1);
+});
+
+
+
+
+
+//------------------------------------------------------------
+// Helper functions
+//------------------------------------------------------------
+function clamp(value, min, max) {
+  return Math.min( Math.max(min, value), max);
+}
+
+function setFontMeasurement() {
+  fontMeasurement = 15 * options.uiScale;
+}
+
+
+
+//------------------------------------------------------------
 // UI functions
 //------------------------------------------------------------
 let objectUrl;
+let fadeTime = 450;
 
-startBtn.addEventListener('click', start);
-restartBtn.addEventListener('click', start);
-
-uploadBtn.addEventListener('click', () => uploadFile.click());
+// startBtn.addEventListener('click', start);
+// restartBtn.addEventListener('click', start);
+// uploadBtn.addEventListener('click', () => uploadFile.click());
 uploadFile.addEventListener('change', uploadAudio);
+// playBtn.addEventListener('click', main);
 
+function announce(text) {
+  srlive.textContent = text;
+}
+
+/**
+ * Hide an element.
+ * @param {HTMLElement[]} els - Element to hide
+ */
+// function hide() {
+//   Array.from(arguments).forEach(el => el.classList.add('hidden'));
+// }
+
+/**
+ * Show an element.
+ * @param {HTMLElement[]} els - Element to show
+ */
+// function show(els) {
+//   Array.from(arguments).forEach(el => el.classList.remove('hidden'));
+// }
+
+/**
+ * Upload an audio file from the users computer.
+ * @param {Event} e - File change event
+ */
 async function uploadAudio(e) {
-  show(loader);
-  hide(introText);
-  hide(winText);
-  hide(startBtn);
-  hide(customUpload);
-  hide(restartBtn);
+  // show(loader);
+  // hide(introText, winText, startBtn, customUpload, restartBtn);
+
+  // clear any previous uploaded song
+  URL.revokeObjectURL(objectUrl);
 
   let file = e.currentTarget.files[0];
   objectUrl = URL.createObjectURL(file);
 
   await generateWaveData(objectUrl);
-  URL.revokeObjectURL(objectUrl);
   songName = uploadFile.value.replace(/^.*fakepath/, '').substr(1);
-  songTitle.textContent = 'Playing: ' + songName;
+  // songTitle.textContent = 'Playing: ' + songName;
+  console.log('done uploading');
   getBestTime();
 
-  hide(loader);
-  show(songTitle);
-  show(startBtn);
-}
-
-/**
- * Hide an element.
- * @param {HTMLElement} el - Element to hide
- */
-function hide(el) {
-  el.hidden = true;
-}
-
-/**
- * Show an element.
- * @param {HTMLElement} el - Element to show
- */
-function show(el) {
-  el.hidden = false;
+  // hide(loader);
+  // show(songTitle, startBtn);
 }
 
 /**
  * Start the game.
  */
 function start() {
+
+  // safari still retains focus on buttons even after they are hidden and
+  // pressing space activates the hidden button. need to manually remove focus
+  // from the buttons to prevent this
+  // startBtn.blur();
+  // restartBtn.blur();
+  menuScene.hide();
+  focusedBtn.blur();
+
   audio.currentTime = 0;
-  firstTime = 0;
+  audio.volume = options.music;
+  audio.playbackRate = options.gameSpeed;
   ship.points = [];
   ship.y = mid;
-  Array.from(document.querySelectorAll('.ui > *')).forEach(hide);
-  setTimeout(() => loop.start(), 10);
+  // Array.from(document.querySelectorAll('.ui > *')).forEach(el => hide(el));
+
+  // give player enough time to recover from pressing the button before they
+  // need to press the screen again to control the ship
+  setTimeout(() => {
+    // buttonLoop.stop();
+    loop.start();
+    // audio.volume = options.music / 10;
+    activeScene = {name: 'game'};
+    audio.play();
+  }, fadeTime);
 }
 
-/**
- * Show game over screen.
- */
-function gameOver() {
-  audio.pause();
-  loop.stop();
-  setBestTime();
-  show(restartBtn);
-  show(customUpload);
-  restartBtn.focus();
-}
+// /**
+//  * Show game over screen.
+//  */
+// function gameOver() {
+//   audio.pause();
+//   loop.stop();
+//   setBestTime();
+//   show(gameOverText);
 
-/**
- * Show win screen.
- */
-function win() {
-  loop.stop();
-  setBestTime();
-  show(winText);
-  show(customUpload);
-}
+//   setTimeout(() => {
+//     show(restartBtn);
+//     restartBtn.focus();
+//   }, 500);
+// }
 
-/**
- * Show intro screen.
- */
-function intro() {
-  hide(loader);
-  show(introText);
-  show(startBtn);
-  show(customUpload);
+// /**
+//  * Show win screen.
+//  */
+// function win() {
+//   loop.stop();
+//   setBestTime();
+//   show(winText, customUpload);
+// }
+
+// /**
+//  * Show intro screen.
+//  */
+// function intro() {
+//   // buttonLoop.start();
+//   startBtn.show();
+//   uploadBtn.show();
+//   optionBtn.show();
+// }
+
+// function loading() {
+
+// }
+
+async function main() {
+  // music from https://opengameart.org/content/adventure-theme
+  await generateWaveData('./' + songName);
+  getBestTime();
+  menuScene.show();
   startBtn.focus();
 }
 
@@ -271,10 +452,336 @@ function intro() {
 
 
 //------------------------------------------------------------
+// Button
+//------------------------------------------------------------
+let uiSpacer = 15;
+function setDimensions(uiEl) {
+  let text = typeof uiEl.text === 'function' ? uiEl.text() : uiEl.text;
+  uiEl.width = text.length * fontMeasurement + fontMeasurement * 2;
+  uiEl.height = fontMeasurement * 3;
+
+  if (uiEl.center || uiEl.type === 'button') {
+    uiEl.x = uiEl.orgX - uiEl.width / 2;
+  }
+
+  if (uiEl.prev) {
+    uiEl.y = uiEl.prev.y + uiEl.prev.height * 1.5 + uiSpacer / options.uiScale;
+  }
+  else {
+    uiEl.y = uiEl.orgY - uiEl.height / 2;
+  }
+
+  uiEl.y += uiEl.margin || 0;
+}
+
+function button(props) {
+  props.orgX = props.x;
+  props.orgY = props.y;
+  props.type = 'button';
+
+  setDimensions(props);
+
+  let button = kontra.sprite(props);
+  button.render = function() {
+    setDimensions(this);
+
+    ctx.save();
+    ctx.font = 25 * options.uiScale + "px 'Lucida Console', Monaco, monospace";
+
+    ctx.fillStyle = '#222';
+    if (button.disabled) {
+      ctx.globalAlpha = clamp(this.parent.alpha - 0.65, 0, 1);
+    }
+
+    ctx.fillRect(this.x, this.y, this.width, this.height);
+
+    if (this.focused) {
+      neonRect(this.x, this.y, this.width, this.height, 255, 0, 0);
+    }
+    else {
+      neonRect(this.x, this.y, this.width, this.height, 0, 163, 220);
+    }
+
+    ctx.fillStyle = '#fff';
+    ctx.fillText(this.text, this.x + fontMeasurement, this.y + fontMeasurement * 2);
+    ctx.restore();
+  };
+  button.focus = function() {
+    if (focusedBtn && focusedBtn.blur) focusedBtn.blur();
+
+    focusedBtn = this;
+    this.focused = true;
+    announce((this.label || this.text) + ' button' + (this.disabled ? ', disabled' : ''));
+  };
+  button.blur = function() {
+    this.focused = false;
+    focusedBtn = null;
+  };
+
+  return button;
+}
+
+
+
+
+
+//------------------------------------------------------------
+// Text
+//------------------------------------------------------------
+function Text(props) {
+  props.orgX = props.x;
+  props.orgY = props.y;
+
+  setDimensions(props);
+
+  let text = kontra.sprite(props);
+  text.render = function() {
+    setDimensions(this);
+
+    let text = typeof this.text === 'function' ? this.text() : this.text;
+    ctx.save();
+    ctx.fillStyle = '#fff';
+    ctx.font = 25 * options.uiScale + "px 'Lucida Console', Monaco, monospace";
+    ctx.fillText(text, this.x, this.y + fontMeasurement * 2);
+    ctx.restore();
+  };
+
+  return text;
+}
+
+
+
+
+
+//------------------------------------------------------------
+// Scene
+//------------------------------------------------------------
+let scenes = [];
+function Scene(name) {
+  let scene = {
+    name: name,
+    alpha: 0,
+    children: [],
+    inc: 0.05,
+    hide(cb) {
+      this.alpha = 1;
+      this.inc = -0.05;
+      setTimeout(() => {
+        this.children.forEach(child => child.active = false);
+        cb && cb();
+      }, fadeTime)
+    },
+    show(cb) {
+      if (this.onShow) this.onShow();
+      activeScene = this;
+      this.alpha = 0;
+      this.inc = 0.05;
+      setTimeout(() => {
+        this.children.forEach(child => child.active = true);
+        cb && cb();
+      }, fadeTime)
+    },
+    add() {
+      Array.from(arguments).forEach(child => {
+        child.parent = this;
+        this.children.push(child);
+      });
+    },
+    update() {
+      this.children.forEach(child => {
+        if (child.update) {
+          child.update()
+        }
+      });
+    },
+    render() {
+      this.alpha = clamp(this.alpha + this.inc, 0, 1);
+
+      ctx.save();
+      ctx.globalAlpha = this.alpha;
+
+      this.children.forEach(child => child.render());
+
+      ctx.restore();
+    }
+  };
+
+  scenes.push(scene);
+  return scene;
+}
+
+
+
+
+
+//------------------------------------------------------------
+// Menu Scene
+//------------------------------------------------------------
+let menuScene = Scene('menu');
+let startBtn = button({
+  x: kontra.canvas.width / 2,
+  y: kontra.canvas.height / 2,
+  text: 'START',
+  onDown: start
+});
+let uploadBtn = button({
+  x: kontra.canvas.width / 2,
+  prev: startBtn,
+  text: 'UPLOAD',
+  onDown() {
+    uploadFile.click();
+  }
+});
+let optionsBtn = button({
+  x: kontra.canvas.width / 2,
+  prev: uploadBtn,
+  text: 'OPTIONS',
+  onDown() {
+    menuScene.hide(() => {
+      optionsScene.show();
+    });
+  }
+});
+menuScene.add(startBtn, uploadBtn, optionsBtn);
+
+
+
+
+
+//------------------------------------------------------------
+// Options Scene
+//------------------------------------------------------------
+let opts = [{
+  name: 'music',
+  minValue: 0,
+  maxValue: 1,
+  inc: 0.05
+},
+{
+  name: 'uiScale',
+  minValue: 1,
+  maxValue: 1.5,
+  inc: 0.05
+},
+{
+  name: 'gameSpeed',
+  minValue: 0.1,
+  maxValue: 2,
+  inc: 0.05
+},
+{
+  name: 'intensity',
+  minValue: 0.1,
+  maxValue: 2,
+  inc: 0.05
+}];
+let beforeOptions;
+let optionsScene = Scene('options');
+let focusEl;
+optionsScene.onShow = () => {
+  beforeOptions = Object.assign({}, options);
+  focusEl.focus();
+};
+
+let startY = 200;
+let optionTexts = [];
+
+opts.forEach((opt, index) => {
+  let name = opt.name.replace(/([A-Z])/g, ' $1').toUpperCase();
+
+  let optionText = Text({
+    x: 50,
+    y: index === 0 ? startY : null,
+    prev: index > 0 ? optionTexts[index-1] : null,
+    text: name
+  });
+  let optionValue = Text({
+    x: 495,
+    y: index === 0 ? startY : null,
+    center: true,
+    prev: index > 0 ? optionTexts[index-1] : null,
+    text() {
+      return (''+Math.round(options[opt.name] * 100)).padStart(3, ' ') + '%';
+    }
+  });
+
+  let decBtn = button({
+    x: 375,
+    y: index === 0 ? startY : null,
+    prev: index > 0 ? optionTexts[index-1] : null,
+    text: '−',
+    label: 'Decrease ' + name,
+    update() {
+      this.disabled = options[opt.name] === opt.minValue;
+    },
+    onDown() {
+      changeValue(-opt.inc);
+    }
+  });
+  if (index === 0) {
+    focusEl = decBtn;
+  }
+
+  let incBtn = button({
+    x: 575,
+    y: index === 0 ? startY : null,
+    prev: index > 0 ? optionTexts[index-1] : null,
+    text: '+',
+    label: 'Increase ' + name,
+    update() {
+      this.disabled = options[opt.name] === opt.maxValue;
+    },
+    onDown() {
+      changeValue(opt.inc);
+    }
+  });
+
+  function changeValue(inc) {
+    let value = clamp(options[opt.name] + inc, opt.minValue, opt.maxValue);
+    options[opt.name] = value;
+    announce(value + '%');
+    setFontMeasurement();
+  }
+
+  optionsScene.add(optionText, optionValue, decBtn, incBtn);
+  optionTexts.push(optionText);
+});
+
+let saveBtn = button({
+  x: kontra.canvas.width / 2,
+  prev: optionTexts[optionTexts.length-1],
+  margin: 45,
+  text: 'SAVE',
+  onDown() {
+    optionsScene.hide(() => {
+      menuScene.show();
+      optionsBtn.focus();
+    });
+  }
+});
+let cancelBtn = button({
+  x: kontra.canvas.width / 2,
+  prev: saveBtn,
+  text: 'CANCEL',
+  onDown() {
+    optionsScene.hide(() => {
+      options = beforeOptions;
+      setFontMeasurement();
+      menuScene.show();
+      optionsBtn.focus();
+    });
+  }
+});
+optionsScene.add(saveBtn, cancelBtn);
+
+
+
+
+
+//------------------------------------------------------------
 // Audio functions
 //------------------------------------------------------------
-window.AudioContext = window.AudioContext || window.webkitAudioContext;
-let context = new AudioContext();
+let context = new (window.AudioContext || window.webkitAudioContext)();
 
 /**
  * Load audio file as an ArrayBuffer.
@@ -282,13 +789,22 @@ let context = new AudioContext();
  * @returns {Promise} resolves with decoded audio data
  */
 function loadAudioBuffer(url) {
-  return fetch(url)
-    .then(response => response.arrayBuffer())
-    .then(buffer => {
-      return context.decodeAudioData(buffer, decodedData => {
-        return Promise.resolve(decodedData)
-      })
-    });
+
+  // we can't use fetch because response.arrayBuffer() isn't supported
+  // in lots of browsers
+  return new Promise((resolve, reject) => {
+    let request = new XMLHttpRequest();
+    request.responseType = 'arraybuffer';
+
+    request.onload = function() {
+      context.decodeAudioData(request.response, decodedData => {
+        resolve(decodedData)
+      });
+    };
+
+    request.open('GET', url, true);
+    request.send();
+  });
 }
 
 /**
@@ -297,12 +813,17 @@ function loadAudioBuffer(url) {
  * @returns {Promise} resolves with audio element
  */
 function loadAudio(url) {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     let audioEl = document.createElement('audio');
 
     audioEl.addEventListener('canplay', function() {
       resolve(this);
     });
+
+    audioEl.onerror = function(e) {
+      console.error('e:', e);
+      reject(e);
+    };
 
     audioEl.src = url;
     audioEl.load();
@@ -317,10 +838,13 @@ async function generateWaveData(url) {
   buffer = await loadAudioBuffer(url);
   audio = await loadAudio(url);
 
-  peaks = exportPCM(1024*8);  // change this by increments of 1024 to get more peaks
-  startBuffer = peaks
-    .slice(0, maxLength / 2 | 0)
-    .map((peak, index) => peak >= 0 ? peak : peaks[index-1]);  // remove negative peaks
+  // numPeaks determines the speed of the game, the less peaks per duration, the
+  // slower the game plays
+  let height = waveHeight * options.intensity;
+  let numPeaks = audio.duration / 8 | 0;
+  peaks = exportPCM(1024 * numPeaks);  // change this by increments of 1024 to get more peaks
+
+  startBuffer = new Array(maxLength / 2 | 0).fill(0);
 
   let waves = peaks
     .map((peak, index) => peak >= 0 ? peak : peaks[index-1]);
@@ -330,9 +854,9 @@ async function generateWaveData(url) {
   let gapDistance = maxLength;  // how long to get to the next turn
   let step = 0;  // increment of each peak to pos
   let offset = 0;  // offset the wave data position to create curves
-  let minBarDistance = mid - 50;  // min distance between top and bottom wave bars
+  let minBarDistance = 270;  // min distance between top and bottom wave bars
 
-  let heightDt = minBarDistance - waveHeight + 10;  // distance between max height and wave height
+  let heightDt = minBarDistance - height + 10;  // distance between max height and wave height
   let heightStep = heightDt / (startBuffer.length + waves.length);  // game should reach the max bar height by end of the song
 
   let counter = 0;
@@ -345,7 +869,7 @@ async function generateWaveData(url) {
       if (++counter >= gapDistance) {
         counter = 0;
         lastPos = pos;
-        pos = mid + (Math.random() * kontra.canvas.height - mid);  // generate random number between -300 and 300
+        pos = mid + (Math.random() * 600 - 300);  // generate random number between -300 and 300
         gapDistance = 300 + (Math.random() * 200 - 100);  // generate random number between 200 and 400
         step = (pos - lastPos) / gapDistance;
       }
@@ -355,7 +879,7 @@ async function generateWaveData(url) {
         x: index * waveWidth,
         y: 0,
         width: waveWidth,
-        height: 10 + peak * waveHeight + heightStep * index,
+        height: 160 + peak * height + heightStep * index,
         offset: offset
       }
     });
@@ -379,7 +903,7 @@ let ship = kontra.sprite({
   points: [],
   maxAcc: 8,
   update() {
-    if (kontra.keys.pressed('space')) {
+    if (kontra.keys.pressed('space') || touchPressed) {
       this.ddy = -this.gravity;
     }
     else {
@@ -389,8 +913,9 @@ let ship = kontra.sprite({
     this.y += this.dy;
     this.dy += this.ddy;
 
-    if (Math.sqrt(this.dy * this.dy) > this.maxAcc) {
-      this.dy = this.dy < 0 ? -this.maxAcc : this.maxAcc;
+    let maxAcc = this.maxAcc / (1 / audio.playbackRate);
+    if (Math.sqrt(this.dy * this.dy) > maxAcc) {
+      this.dy = this.dy < 0 ? -maxAcc : maxAcc;
     }
 
   },
@@ -408,21 +933,24 @@ let ship = kontra.sprite({
 //------------------------------------------------------------
 // Game loop
 //------------------------------------------------------------
-let firstTime = false;
 loop = kontra.gameLoop({
   update() {
+    if (activeScene.render) activeScene.update();
+
+    if (activeScene.name !== 'game') return;
+
     ship.update();
   },
   render() {
+
+    if (activeScene.render) activeScene.render();
+
+    if (activeScene.name !== 'game') return;
 
     // context.currentTime would be as long as the audio took to load, so was
     // always off. seems it's not meant for large files. better to use audio
     // element and play it right on time
     // @see https://stackoverflow.com/questions/33006650/web-audio-api-and-real-current-time-when-playing-an-audio-file
-    if (!firstTime) {
-      audio.play();
-      firstTime = true;
-    }
 
     // calculate speed of the audio wave based on the current time
     let move = Math.round((audio.currentTime / audio.duration) * (peaks.length * waveWidth));
@@ -435,7 +963,7 @@ loop = kontra.gameLoop({
       let x = wave.x - move;
 
       // keep track of the amp bar
-      if (x > waveWidth * (startBuffer.length - 1) && x < waveWidth * (startBuffer.length + 1)) {
+      if (x > waveWidth * (maxLength / 2 - 1) && x < waveWidth * (maxLength / 2 + 1)) {
         ampBar = wave;
         ampBarIndex = i;
       }
@@ -463,12 +991,12 @@ loop = kontra.gameLoop({
                ship.y + ship.height > wave.y) ||
               (ship.y < botY + wave.height + wave.offset &&
                ship.y + ship.height > botY)) {
-            gameOver();
+            // gameOver();
           }
         }
       }
       if (ship.y < -50 || ship.y > kontra.canvas.height + 50) {
-        gameOver();
+        // gameOver();
       }
     }
 
@@ -479,36 +1007,37 @@ loop = kontra.gameLoop({
     }
 
     // time
+    ctx.save();
     ctx.fillStyle = '#222';
 
     // top bar
     ctx.beginPath();
-    ctx.moveTo(0, 43);
-    ctx.lineTo(80, 43);
-    for (let i = 1; i <= 10; i++) {
-      ctx.lineTo(80+i*2, 43-i*2);
-      ctx.lineTo(80+i*2+2, 43-i*2);
+    ctx.moveTo(0, 43 * options.uiScale);
+    ctx.lineTo(80 * options.uiScale, 43 * options.uiScale);
+    for (let i = 1; i <= 10 * options.uiScale | 0; i++) {
+      ctx.lineTo(80 * options.uiScale +i*2, 43 * options.uiScale -i*2);
+      ctx.lineTo(80 * options.uiScale +i*2+2, 43 * options.uiScale -i*2);
     }
-    ctx.lineTo(170, 23);
-    for (let i = 1; i <= 10; i++) {
-      ctx.lineTo(170+i*2, 23-i*2);
-      ctx.lineTo(170+i*2+2, 23-i*2);
+    ctx.lineTo(170 * options.uiScale, 23 * options.uiScale);
+    for (let i = 1; i <= 10 * options.uiScale | 0; i++) {
+      ctx.lineTo(170 * options.uiScale +i*2, 23 * options.uiScale -i*2);
+      ctx.lineTo(170 * options.uiScale +i*2+2, 23 * options.uiScale -i*2);
     }
-    ctx.lineTo(192, 0);
+    ctx.lineTo(192 * options.uiScale, 0);
     ctx.lineTo(0, 0);
     ctx.closePath();
     ctx.fill();
 
     // bottom bar
     ctx.beginPath();
-    let y = kontra.canvas.height - 25;
+    let y = kontra.canvas.height - 25 * options.uiScale;
     ctx.moveTo(0, y);
-    ctx.lineTo(125, y);
-    for (let i = 1; i <= 10; i++) {
-      ctx.lineTo(125+i*2, y+i*2);
-      ctx.lineTo(125+i*2+2, y+i*2);
+    ctx.lineTo(125 * options.uiScale, y);
+    for (let i = 1; i <= 10 * options.uiScale | 0; i++) {
+      ctx.lineTo(125 * options.uiScale +i*2, y+i*2);
+      ctx.lineTo(125 * options.uiScale +i*2+2, y+i*2);
     }
-    ctx.lineTo(147, kontra.canvas.height);
+    ctx.lineTo(147 * options.uiScale, kontra.canvas.height);
     ctx.lineTo(0, kontra.canvas.height);
     ctx.closePath();
     ctx.fill();
@@ -516,11 +1045,12 @@ loop = kontra.gameLoop({
     ctx.fillStyle = '#fdfdfd';
     let time = getTime(audio.currentTime);
 
-    ctx.font = "40px 'Lucida Console', Monaco, monospace";
-    ctx.fillText(getSeconds(time).padStart(3, ' '), 5, 35);
-    ctx.font = "18px 'Lucida Console', Monaco, monospace";
-    ctx.fillText(':' + getMilliseconds(time).padStart(2, '0') + '\nTime', 80, 17);
-    ctx.fillText(bestTime.padStart(6, ' ') + '\nBest', 5, kontra.canvas.height - 5);
+    ctx.font = 40 * options.uiScale + "px 'Lucida Console', Monaco, monospace";
+    ctx.fillText(getSeconds(time).padStart(3, ' '), 5 * options.uiScale, 35 * options.uiScale);
+    ctx.font = 18 * options.uiScale + "px 'Lucida Console', Monaco, monospace";
+    ctx.fillText(':' + getMilliseconds(time).padStart(2, '0') + '\nTIME', 80 * options.uiScale, 17 * options.uiScale);
+    ctx.fillText(bestTime.padStart(6, ' ') + '\nBEST', 5 * options.uiScale, kontra.canvas.height - 5 * options.uiScale);
+    ctx.restore();
 
     if (waveData[waveData.length - 1].x - move <= kontra.canvas.width / 2) {
       win();
@@ -528,18 +1058,6 @@ loop = kontra.gameLoop({
   }
 });
 
-
-
-
-
-//------------------------------------------------------------
-// Main
-//------------------------------------------------------------
-async function main() {
-
-  // music from https://opengameart.org/content/adventure-theme
-  await generateWaveData('./SuperHero_original.ogg');
-  getBestTime();
-  intro();
-}
+loop.start();
 main();
+// })();
