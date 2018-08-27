@@ -687,7 +687,7 @@ let uploadBtn = button({
 let optionsBtn = button({
   x: kontra.canvas.width / 2,
   prev: uploadBtn,
-  text: 'jii',
+  text: 'OPTIONS',
   onDown() {
     menuScene.hide(() => {
       optionsScene.show();
