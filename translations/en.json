@@ -1,0 +1,13 @@
+{
+  "start": "START",
+  "upload": "UPLOAD",
+  "options": "OPTIONS",
+  "music": "MUSIC",
+  "uiScale": "UI SCALE",
+  "gameSpeed": "GAME SPEED",
+  "intensity": "INTENSITY",
+  "save": "SAVE",
+  "cancel": "CANCEL",
+  "time": "TIME",
+  "best": "BEST"
+}

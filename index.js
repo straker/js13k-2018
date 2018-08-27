@@ -40,6 +40,8 @@ let options = Object.assign(  // options for the game
 );
 let fontMeasurement;  // size of text based
 setFontMeasurement();
+let gamepad;  // gamepad state
+let lastUsedInput;  // keep track of last used input device
 
 
 
@@ -196,7 +198,7 @@ function neonLine(points, move, r, g, b) {
 
 
 //------------------------------------------------------------
-// Event Handlers
+// Input Handlers
 //------------------------------------------------------------
 let touchPressed;
 window.addEventListener('mousedown', handleOnDown);
@@ -207,11 +209,17 @@ window.addEventListener('blur', handleOnUp);
 window.addEventListener('beforeunload', () => {
   URL.revokeObjectURL(objectUrl);
 });
+window.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  e.stopPropagation();
+  return false;
+});
 
 /**
  * Detect if a button was clicked.
  */
 function handleOnDown(e) {
+  e.preventDefault();
   touchPressed = true;
 
   let pageX, pageY;
@@ -280,7 +288,6 @@ function handleArrowDownUp(inc) {
       break;
     }
   }
-
 }
 
 kontra.keys.bind('space', () => {
@@ -297,6 +304,26 @@ kontra.keys.bind('down', (e) => {
   handleArrowDownUp(1);
 });
 
+let debouncedHandleArrowDownUp = debounce(handleArrowDownUp, 50, true);
+function updateGamepad() {
+  if (!navigator.getGamepads) return;
+  gamepad = navigator.getGamepads()[0];
+
+  if (!gamepad) return;
+
+  if (gamepad && gamepad.buttons[0].pressed && focusedBtn && focusedBtn.onDown) {
+    focusedBtn.onDown()
+  }
+
+  let axes = applyDeadzone(gamepad.axes[1], 0.5);
+  if (axes < 0) {
+    debouncedHandleArrowDownUp(-1);
+  }
+  else if (axes > 0) {
+    debouncedHandleArrowDownUp(1);
+  }
+}
+
 
 
 
@@ -312,6 +339,31 @@ function setFontMeasurement() {
   fontMeasurement = 15 * options.uiScale;
 }
 
+// @see https://www.smashingmagazine.com/2015/11/gamepad-api-in-web-games/
+function applyDeadzone(number, threshold){
+  percentage = (Math.abs(number) - threshold) / (1 - threshold);
+
+  if(percentage < 0) {
+    percentage = 0;
+  }
+
+  return percentage * (number > 0 ? 1 : -1);
+}
+
+function debounce(func, wait, immediate) {
+  var timeout;
+  return function() {
+    var context = this, args = arguments;
+    var later = function() {
+      timeout = null;
+      if (!immediate) func.apply(context, args);
+    };
+    var callNow = immediate && !timeout;
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+    if (callNow) func.apply(context, args);
+  };
+}
 
 
 //------------------------------------------------------------
@@ -635,7 +687,7 @@ let uploadBtn = button({
 let optionsBtn = button({
   x: kontra.canvas.width / 2,
   prev: uploadBtn,
-  text: 'OPTIONS',
+  text: 'jii',
   onDown() {
     menuScene.hide(() => {
       optionsScene.show();
@@ -739,7 +791,7 @@ opts.forEach((opt, index) => {
   function changeValue(inc) {
     let value = clamp(options[opt.name] + inc, opt.minValue, opt.maxValue);
     options[opt.name] = value;
-    announce(value + '%');
+    announce(Math.round(value * 100) + '%');
     setFontMeasurement();
   }
 
@@ -903,7 +955,7 @@ let ship = kontra.sprite({
   points: [],
   maxAcc: 8,
   update() {
-    if (kontra.keys.pressed('space') || touchPressed) {
+    if (kontra.keys.pressed('space') || touchPressed || (gamepad && gamepad.buttons[0].pressed)) {
       this.ddy = -this.gravity;
     }
     else {
@@ -935,6 +987,8 @@ let ship = kontra.sprite({
 //------------------------------------------------------------
 loop = kontra.gameLoop({
   update() {
+    updateGamepad();
+
     if (activeScene.render) activeScene.update();
 
     if (activeScene.name !== 'game') return;
