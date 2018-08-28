@@ -2,6 +2,8 @@
   "start": "START",
   "upload": "UPLOAD",
   "options": "OPTIONS",
+  "keyboardSpace": "[Space]",
+  "select": "Select",
   "music": "MUSIC",
   "uiScale": "UI SCALE",
   "gameSpeed": "GAME SPEED",

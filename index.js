@@ -7,12 +7,6 @@ kontra.canvas.focus();
 //------------------------------------------------------------
 const ctx = kontra.context;
 const mid = kontra.canvas.height / 2;  // midpoint of the canvas
-
-const osCanvas = document.createElement('canvas');  // used to save the main context state
-const osCtx = osCanvas.getContext('2d');
-osCanvas.width = kontra.canvas.width;
-osCanvas.height = kontra.canvas.height;
-
 const waveWidth = 2;
 const waveHeight = 215;
 const maxLength = kontra.canvas.width / waveWidth + 3 | 0; // maximum number of peaks to show on screen
@@ -30,7 +24,7 @@ let startBuffer;  // duplicated wave data added to the front of waveData to let 
 let loop;  // game loop
 let songName = 'SuperHero.mp3';  // name of the song
 let bestTimes;  // object of best times for all songs
-let bestTime;  // best time for song
+let bestTime;  // best time for a single song
 let activeScene = {};  // currently active scene
 let focusedBtn;  // currently focused button
 let options = Object.assign(  // options for the game
@@ -38,8 +32,7 @@ let options = Object.assign(  // options for the game
   defaultOptions,
   JSON.parse(localStorage.getItem('js13k-2018:options'))
 );
-let fontMeasurement;  // size of text based
-setFontMeasurement();
+let fontMeasurement;  // size of text letter
 let gamepad;  // gamepad state
 let lastUsedInput;  // keep track of last used input device
 
@@ -224,10 +217,13 @@ function handleOnDown(e) {
 
   let pageX, pageY;
   if (e.type.indexOf('mouse') !== -1) {
+    lastUsedInput = 'mouse';
     pageX = e.pageX;
     pageY = e.pageY;
   }
   else {
+    lastUsedInput = 'touch';
+
     // touchstart uses touches while touchend uses changedTouches
     // @see https://stackoverflow.com/questions/17957593/how-to-capture-touchend-coordinates
     pageX = (e.touches[0] || e.changedTouches[0]).pageX;
@@ -248,17 +244,19 @@ function handleOnDown(e) {
   x /= scale;
   y /= scale;
 
-  activeScene.children.forEach(child => {
-    if (!child.disabled && child.onDown && child.collidesWith({
-      // center the click
-      x: x - 5,
-      y: y - 5,
-      width: 10,
-      height: 10
-    })) {
-      child.onDown();
-    }
-  });
+  if (activeScene.children) {
+    activeScene.children.forEach(child => {
+      if (!child.disabled && child.onDown && child.collidesWith({
+        // center the click
+        x: x - 5,
+        y: y - 5,
+        width: 10,
+        height: 10
+      })) {
+        child.onDown();
+      }
+    });
+  }
 }
 
 /**
@@ -274,11 +272,10 @@ function handleArrowDownUp(inc) {
   while (true) {
     index += inc;
 
-    if (index < 0) {
-      index = activeScene.children.length - 1;
-    }
-    else if (index > activeScene.children.length - 1) {
-      index = 0;
+    // if we get to the beginning or end we're already focused on the first/last
+    // element
+    if (index < 0 || index > activeScene.children.length - 1) {
+      return;
     }
 
     let child = activeScene.children[index];
@@ -291,36 +288,52 @@ function handleArrowDownUp(inc) {
 }
 
 kontra.keys.bind('space', () => {
+  lastUsedInput = 'keyboard';
+
   if (focusedBtn && focusedBtn.onDown) focusedBtn.onDown();
 });
 
 kontra.keys.bind('up', (e) => {
+  lastUsedInput = 'keyboard';
+
   e.preventDefault();
   handleArrowDownUp(-1);
 });
 
 kontra.keys.bind('down', (e) => {
+  lastUsedInput = 'keyboard';
+
   e.preventDefault();
   handleArrowDownUp(1);
 });
 
 let debouncedHandleArrowDownUp = debounce(handleArrowDownUp, 50, true);
+let dt = 1;
 function updateGamepad() {
   if (!navigator.getGamepads) return;
   gamepad = navigator.getGamepads()[0];
 
   if (!gamepad) return;
 
-  if (gamepad && gamepad.buttons[0].pressed && focusedBtn && focusedBtn.onDown) {
+  dt += 1/60;
+  if (dt > 0.30 && gamepad.buttons[0].pressed && focusedBtn && focusedBtn.onDown) {
+    dt = 0;
+    lastUsedInput = 'gamepad';
     focusedBtn.onDown()
   }
 
   let axes = applyDeadzone(gamepad.axes[1], 0.5);
-  if (axes < 0) {
+  if (axes < 0 || gamepad.buttons[12].pressed) {
+    lastUsedInput = 'gamepad';
     debouncedHandleArrowDownUp(-1);
   }
-  else if (axes > 0) {
+  else if (axes > 0 || gamepad.buttons[13].pressed) {
+    lastUsedInput = 'gamepad';
     debouncedHandleArrowDownUp(1);
+  }
+
+  if (activeScene.name === 'game' && isTutorial && gamepad.buttons[0].pressed) {
+    isTutorial = false;
   }
 }
 
@@ -449,7 +462,7 @@ function start() {
     loop.start();
     // audio.volume = options.music / 10;
     activeScene = {name: 'game'};
-    audio.play();
+    // audio.play();
   }, fadeTime);
 }
 
@@ -492,11 +505,49 @@ function start() {
 // }
 
 async function main() {
+  setFontMeasurement();
+
   // music from https://opengameart.org/content/adventure-theme
   await generateWaveData('./' + songName);
   getBestTime();
   menuScene.show();
   startBtn.focus();
+}
+
+function setFont(size) {
+  ctx.font = size * options.uiScale + "px 'Lucida Console', Monaco, monospace";
+}
+
+function renderControllerHelpText(text, size, x, y) {
+  ctx.save();
+  setFont(25);
+  ctx.fillStyle = 'green';
+  ctx.beginPath();
+  ctx.arc(x, kontra.canvas.height - y, fontMeasurement, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'white';
+  ctx.shadowColor = 'black';
+  ctx.shadowBlur = 7;
+  ctx.fillText('A', x - fontMeasurement / 2, kontra.canvas.height - y + fontMeasurement / 2);
+
+  setFont(size);
+  ctx.fillText(text, x + fontMeasurement * 1.5, kontra.canvas.height - y + fontMeasurement / 2.5);
+  ctx.restore();
+}
+
+function showHelpText() {
+  ctx.save();
+
+  if (lastUsedInput === 'keyboard') {
+    setFont(18);
+    ctx.fillStyle = 'white';
+    ctx.fillText('[Space] Select', 50 - fontMeasurement, kontra.canvas.height - 50 + fontMeasurement / 2.5);
+  }
+  else if (lastUsedInput === 'gamepad') {
+    renderControllerHelpText('Select', 18, 50, 50);
+  }
+
+  ctx.restore();
 }
 
 
@@ -538,7 +589,7 @@ function button(props) {
     setDimensions(this);
 
     ctx.save();
-    ctx.font = 25 * options.uiScale + "px 'Lucida Console', Monaco, monospace";
+    setFont(25);
 
     ctx.fillStyle = '#222';
     if (button.disabled) {
@@ -549,6 +600,9 @@ function button(props) {
 
     if (this.focused) {
       neonRect(this.x, this.y, this.width, this.height, 255, 0, 0);
+    }
+    else if (this.disabled) {
+      neonRect(this.x, this.y, this.width, this.height, 100, 100, 100);
     }
     else {
       neonRect(this.x, this.y, this.width, this.height, 0, 163, 220);
@@ -593,7 +647,7 @@ function Text(props) {
     let text = typeof this.text === 'function' ? this.text() : this.text;
     ctx.save();
     ctx.fillStyle = '#fff';
-    ctx.font = 25 * options.uiScale + "px 'Lucida Console', Monaco, monospace";
+    setFont(25);
     ctx.fillText(text, this.x, this.y + fontMeasurement * 2);
     ctx.restore();
   };
@@ -946,6 +1000,8 @@ async function generateWaveData(url) {
 //------------------------------------------------------------
 // Ship
 //------------------------------------------------------------
+let isTutorial = true;
+let tutorialMove = 0;
 let ship = kontra.sprite({
   x: kontra.canvas.width / 2 - waveWidth / 2,
   y: kontra.canvas.height / 2 - waveWidth / 2,
@@ -961,6 +1017,8 @@ let ship = kontra.sprite({
     else {
       this.ddy = this.gravity;
     }
+
+    if (isTutorial) return;
 
     this.y += this.dy;
     this.dy += this.ddy;
@@ -999,7 +1057,23 @@ loop = kontra.gameLoop({
 
     if (activeScene.render) activeScene.render();
 
+    showHelpText();
+
     if (activeScene.name !== 'game') return;
+
+    ctx.fillStyle = '#00a3dc';
+    ctx.fillRect(0, 0, kontra.canvas.width, 160);
+    ctx.fillRect(0, kontra.canvas.height - 160, kontra.canvas.width, 160);
+    tutorialMove += 2;
+    ship.render(tutorialMove);
+
+    setFont(18);
+
+    if (lastUsedInput === 'gamepad') {
+      renderControllerHelpText('Dodge', 25, kontra.canvas.width / 2 - fontMeasurement * 3, kontra.canvas.height / 2 + 100);
+    }
+
+    return;
 
     // context.currentTime would be as long as the audio took to load, so was
     // always off. seems it's not meant for large files. better to use audio
@@ -1099,9 +1173,9 @@ loop = kontra.gameLoop({
     ctx.fillStyle = '#fdfdfd';
     let time = getTime(audio.currentTime);
 
-    ctx.font = 40 * options.uiScale + "px 'Lucida Console', Monaco, monospace";
+    setFont(40);
     ctx.fillText(getSeconds(time).padStart(3, ' '), 5 * options.uiScale, 35 * options.uiScale);
-    ctx.font = 18 * options.uiScale + "px 'Lucida Console', Monaco, monospace";
+    setFont(18);
     ctx.fillText(':' + getMilliseconds(time).padStart(2, '0') + '\nTIME', 80 * options.uiScale, 17 * options.uiScale);
     ctx.fillText(bestTime.padStart(6, ' ') + '\nBEST', 5 * options.uiScale, kontra.canvas.height - 5 * options.uiScale);
     ctx.restore();
