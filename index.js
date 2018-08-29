@@ -306,29 +306,58 @@ kontra.keys.bind('down', (e) => {
   handleArrowDownUp(1);
 });
 
-let debouncedHandleArrowDownUp = debounce(handleArrowDownUp, 50, true);
-let dt = 1;
+let aDt = 1;
+let aDuration = 0;
+let axesDt = 1;
+let axesDuration = 0;
+
 function updateGamepad() {
   if (!navigator.getGamepads) return;
   gamepad = navigator.getGamepads()[0];
 
   if (!gamepad) return;
 
-  dt += 1/60;
-  if (dt > 0.30 && gamepad.buttons[0].pressed && focusedBtn && focusedBtn.onDown) {
-    dt = 0;
+  if (gamepad.buttons[0].pressed) {
     lastUsedInput = 'gamepad';
+    aDuration += 1/60;
+    aDt += 1/60;
+  }
+  else {
+    aDuration = 0;
+    aDt = 1;
+  }
+
+  // run the first time immediately then hold for a bit before letting the user
+  // continue to press the button down
+  if ((aDt > 0.30 || (aDuration > 0.3 && aDt > 0.10)) &&
+      gamepad.buttons[0].pressed && focusedBtn && focusedBtn.onDown) {
+    aDt = 0;
     focusedBtn.onDown()
   }
 
   let axes = applyDeadzone(gamepad.axes[1], 0.5);
-  if (axes < 0 || gamepad.buttons[12].pressed) {
+  let upPressed = axes < 0 || gamepad.buttons[12].pressed;
+  let downPressed = axes > 0 || gamepad.buttons[13].pressed
+
+  if (upPressed || downPressed) {
     lastUsedInput = 'gamepad';
-    debouncedHandleArrowDownUp(-1);
+    axesDuration += 1/60;
+    axesDt += 1/60;
   }
-  else if (axes > 0 || gamepad.buttons[13].pressed) {
-    lastUsedInput = 'gamepad';
-    debouncedHandleArrowDownUp(1);
+  else {
+    axesDuration = 0;
+    axesDt = 1;
+  }
+
+  if (axesDt > 0.30 || (axesDuration > 0.3 && axesDt > 0.10)) {
+    if (upPressed) {
+      axesDt = 0;
+      handleArrowDownUp(-1);
+    }
+    else if (downPressed) {
+      axesDt = 0;
+      handleArrowDownUp(1);
+    }
   }
 
   if (activeScene.name === 'game' && isTutorial && gamepad.buttons[0].pressed) {
@@ -362,20 +391,8 @@ function applyDeadzone(number, threshold){
   return percentage * (number > 0 ? 1 : -1);
 }
 
-function debounce(func, wait, immediate) {
-  var timeout;
-  return function() {
-    var context = this, args = arguments;
-    var later = function() {
-      timeout = null;
-      if (!immediate) func.apply(context, args);
-    };
-    var callNow = immediate && !timeout;
-    clearTimeout(timeout);
-    timeout = setTimeout(later, wait);
-    if (callNow) func.apply(context, args);
-  };
-}
+
+
 
 
 //------------------------------------------------------------
@@ -622,7 +639,6 @@ function button(props) {
   let el = document.createElement('button');
   el.textContent = button.label || button.text;
   el.addEventListener('focus', button.focus.bind(button));
-  el.addEventListener('click', button.onDown.bind(button));
   button.domEl = el;
 
   Object.defineProperty(button, 'disabled', {
@@ -856,7 +872,7 @@ opts.forEach((opt, index) => {
       this.disabled = options[opt.name] === opt.minValue;
     },
     onDown() {
-      debouncedChangeValue(-opt.inc);
+      changeValue(-opt.inc);
     }
   });
   if (index === 0) {
@@ -873,7 +889,7 @@ opts.forEach((opt, index) => {
       this.disabled = options[opt.name] === opt.maxValue;
     },
     onDown() {
-      debouncedChangeValue(opt.inc);
+      changeValue(opt.inc);
     }
   });
 
@@ -882,7 +898,6 @@ opts.forEach((opt, index) => {
     options[opt.name] = value;
     setFontMeasurement();
   }
-  let debouncedChangeValue = debounce(changeValue, 50);
 
   optionsScene.add(optionText, optionValue, decBtn, incBtn);
   optionTexts.push(optionText);
