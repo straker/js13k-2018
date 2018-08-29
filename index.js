@@ -110,6 +110,9 @@ function isBetterTime(time) {
 /**
  * Draw a neon rectangle in the given color.
  * @see https://codepen.io/agar3s/pen/pJpoya?editors=0010#0
+ * Don't use shadow blur as it is terrible for performance
+ * @see https://stackoverflow.com/questions/15706856/how-to-improve-performance-when-context-shadow-canvas-html5-javascript
+ *
  * @param {number} x - X position of the rectangle
  * @param {number} y - Y position of the rectangle
  * @param {number} w - Width of the rectangle
@@ -120,14 +123,12 @@ function isBetterTime(time) {
  */
 function neonRect(x, y, w, h, r, g, b) {
   ctx.save();
-  ctx.shadowColor = "rgb(" + r + "," + g + "," + b + ")";
-  ctx.shadowBlur = 10;
   ctx.strokeStyle = "rgba(" + r + "," + g + "," + b + ",0.2)";
-  ctx.lineWidth = 7.5;
+  ctx.lineWidth = 10.5;
   ctx.strokeRect(x, y, w, h);
-  ctx.lineWidth = 6;
+  ctx.lineWidth = 8;
   ctx.strokeRect(x, y, w, h);
-  ctx.lineWidth = 4.5;
+  ctx.lineWidth = 5.5;
   ctx.strokeRect(x, y, w, h);
   ctx.lineWidth = 3;
   ctx.strokeRect(x, y, w, h);
@@ -163,17 +164,15 @@ function neonLine(points, move, r, g, b) {
   if (!points.length) return;
 
   ctx.save();
-  ctx.shadowColor = "rgb(" + r + "," + g + "," + b + ")";
-  ctx.shadowBlur = 10;
   ctx.strokeStyle = "rgba(" + r + "," + g + "," + b + ",0.2)";
 
-  ctx.lineWidth = 7.5;
+  ctx.lineWidth = 10.5;
   drawLines(points, move);
 
-  ctx.lineWidth = 6;
+  ctx.lineWidth = 8;
   drawLines(points, move);
 
-  ctx.lineWidth = 4.5;
+  ctx.lineWidth = 5.5;
   drawLines(points, move);
 
   ctx.lineWidth = 3;
@@ -391,10 +390,6 @@ let fadeTime = 450;
 uploadFile.addEventListener('change', uploadAudio);
 // playBtn.addEventListener('click', main);
 
-function announce(text) {
-  srlive.textContent = text;
-}
-
 /**
  * Hide an element.
  * @param {HTMLElement[]} els - Element to hide
@@ -510,8 +505,7 @@ async function main() {
   // music from https://opengameart.org/content/adventure-theme
   await generateWaveData('./' + songName);
   getBestTime();
-  menuScene.show();
-  startBtn.focus();
+  menuScene.show(() => startBtn.focus());
 }
 
 function setFont(size) {
@@ -617,12 +611,24 @@ function button(props) {
 
     focusedBtn = this;
     this.focused = true;
-    announce((this.label || this.text) + ' button' + (this.disabled ? ', disabled' : ''));
+    this.domEl.focus();
   };
   button.blur = function() {
     this.focused = false;
     focusedBtn = null;
   };
+
+  // create accessible html button for screen readers
+  let el = document.createElement('button');
+  el.textContent = button.label || button.text;
+  el.addEventListener('focus', button.focus.bind(button));
+  el.addEventListener('click', button.onDown.bind(button));
+  button.domEl = el;
+
+  Object.defineProperty(button, 'disabled', {
+    get() { return this.domEl.disabled },
+    set(value) { this.domEl.disabled = value }
+  });
 
   return button;
 }
@@ -645,12 +651,27 @@ function Text(props) {
     setDimensions(this);
 
     let text = typeof this.text === 'function' ? this.text() : this.text;
+    if (this.lastText !== text) {
+      this.lastText = text;
+      this.domEl.textContent = text;
+    }
+
     ctx.save();
     ctx.fillStyle = '#fff';
     setFont(25);
     ctx.fillText(text, this.x, this.y + fontMeasurement * 2);
     ctx.restore();
   };
+
+  // create accessible html text for screen readers
+  let el = document.createElement('div');
+
+  if (typeof props.text === 'function') {
+    el.setAttribute('role', 'alert');
+    el.setAttribute('aria-live', 'assertive');
+    el.setAttribute('aria-atomic', true);
+  }
+  text.domEl = el;
 
   return text;
 }
@@ -664,26 +685,39 @@ function Text(props) {
 //------------------------------------------------------------
 let scenes = [];
 function Scene(name) {
+  let sceneEl = document.createElement('div');
+  sceneEl.hidden = true;
+  uiScenes.appendChild(sceneEl);
+
   let scene = {
     name: name,
     alpha: 0,
     children: [],
     inc: 0.05,
     hide(cb) {
+      sceneEl.hidden = true;
       this.alpha = 1;
       this.inc = -0.05;
       setTimeout(() => {
-        this.children.forEach(child => child.active = false);
+        this.children.forEach(child => {
+          child.active = false
+          child.domEl.hidden = true;
+        });
         cb && cb();
-      }, fadeTime)
+      }, fadeTime);
     },
     show(cb) {
-      if (this.onShow) this.onShow();
+      sceneEl.hidden = false;
       activeScene = this;
       this.alpha = 0;
       this.inc = 0.05;
       setTimeout(() => {
-        this.children.forEach(child => child.active = true);
+        this.children.forEach(child => {
+          child.active = true
+          child.domEl.hidden = false;
+        });
+
+        if (this.onShow) this.onShow();
         cb && cb();
       }, fadeTime)
     },
@@ -691,6 +725,7 @@ function Scene(name) {
       Array.from(arguments).forEach(child => {
         child.parent = this;
         this.children.push(child);
+        sceneEl.appendChild(child.domEl);
       });
     },
     update() {
@@ -786,7 +821,7 @@ let optionsScene = Scene('options');
 let focusEl;
 optionsScene.onShow = () => {
   beforeOptions = Object.assign({}, options);
-  focusEl.focus();
+  focusEl.domEl.focus();
 };
 
 let startY = 200;
@@ -821,7 +856,7 @@ opts.forEach((opt, index) => {
       this.disabled = options[opt.name] === opt.minValue;
     },
     onDown() {
-      changeValue(-opt.inc);
+      debouncedChangeValue(-opt.inc);
     }
   });
   if (index === 0) {
@@ -838,16 +873,16 @@ opts.forEach((opt, index) => {
       this.disabled = options[opt.name] === opt.maxValue;
     },
     onDown() {
-      changeValue(opt.inc);
+      debouncedChangeValue(opt.inc);
     }
   });
 
   function changeValue(inc) {
     let value = clamp(options[opt.name] + inc, opt.minValue, opt.maxValue);
     options[opt.name] = value;
-    announce(Math.round(value * 100) + '%');
     setFontMeasurement();
   }
+  let debouncedChangeValue = debounce(changeValue, 50);
 
   optionsScene.add(optionText, optionValue, decBtn, incBtn);
   optionTexts.push(optionText);
@@ -860,8 +895,7 @@ let saveBtn = button({
   text: 'SAVE',
   onDown() {
     optionsScene.hide(() => {
-      menuScene.show();
-      optionsBtn.focus();
+      menuScene.show(() => optionsBtn.domEl.focus());
     });
   }
 });
@@ -873,8 +907,7 @@ let cancelBtn = button({
     optionsScene.hide(() => {
       options = beforeOptions;
       setFontMeasurement();
-      menuScene.show();
-      optionsBtn.focus();
+      menuScene.show(() => optionsBtn.domEl.focus());
     });
   }
 });

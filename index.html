@@ -19,12 +19,6 @@
     justify-content: center;
   }
 
-  .hidden {
-    opacity: 0 !important;
-    position: absolute;
-    z-index: -1;
-  }
-
   .wrapper {
     max-width: 640px;
     max-height: 960px;
@@ -60,17 +54,19 @@
   }
 
   [hidden] {
-    visibility: hidden;
-    display: block;
-    position: absolute;
-    z-index: -1;
+    display: none !important;
   }
 
-  #srlive {
-    position: absolute !important;
-    height: 1px; width: 1px;
+  #uiScenes {
+    position: absolute;
     overflow: hidden;
-    clip: rect(1px, 1px, 1px, 1px);
+    clip: rect(0 0 0 0);
+    height: 1px;
+    width: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    z-index: -10;
   }
   </style>
 </head>
@@ -81,8 +77,8 @@
 <div class="wrapper" role="application">
   <canvas width="640" height="960" tabindex="0" autofocus aria-label="Use arrow keys to move between buttons, Spacebar to select"></canvas>
 </div>
+<div id="uiScenes"></div>
 <input type="file" id="uploadFile" tabindex="-1" hidden>
-<div aria-live="polite" aria-atomic="true" role="region" id="srlive"></div>
 
 <script src="index.js"></script>
 </body>
