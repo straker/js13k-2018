@@ -10,10 +10,17 @@ function exportPCM(length, accuracy, noWindow, start) {
   start = start || 0;
   accuracy = accuracy || 10000;
   const peaks = getPeaks(length, start);
-  const arr = [].map.call(
-      peaks,
-      val => Math.round(val * accuracy) / accuracy
-  );
+
+  // find largest peak and treat it as peaks of 1 and normalize rest of peaks
+  let maxPeak = 0;
+  let arr = [].map.call(peaks, peak => {
+    if (peak > maxPeak) {
+      maxPeak = peak;
+    }
+    return peak;
+  });
+  let normalizePeak = 1 - maxPeak;
+  arr = arr.map(peak =>  Math.round((peak + normalizePeak) * accuracy) / accuracy);
 
   return arr;
 }

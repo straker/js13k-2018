@@ -4,7 +4,6 @@ const concat = require('gulp-concat');
 const terser = require('gulp-terser');
 
 gulp.task('build', function() {
-  // TODO: change this to just the files I need later
   return gulp.src(['./kontra.js', 'wavesurfer.js', 'index.js'])
     .pipe(concat('dist.js'))
     .pipe(terser())
@@ -13,6 +12,13 @@ gulp.task('build', function() {
     }))
     .pipe(gulp.dest('.'))
 });
+
+gulp.task('dist', function() {
+  return gulp.src(['./dist.js', 'index.html'])
+    .pipe(size({
+      gzip: true
+    }))
+})
 
 gulp.task('watch', function() {
   gulp.watch('index.js', ['build']);

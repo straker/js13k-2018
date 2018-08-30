@@ -1,6 +1,5 @@
 // (function() {
 kontra.init();
-kontra.canvas.focus();
 
 //------------------------------------------------------------
 // Global variables
@@ -13,8 +12,7 @@ const maxLength = kontra.canvas.width / waveWidth + 3 | 0; // maximum number of 
 const defaultOptions = {
   music: 1,
   uiScale: 1,
-  gameSpeed: 1,
-  intensity: 1,
+  gameSpeed: 1
 };
 
 let audio;  // audio file for playing/pausing
@@ -59,7 +57,11 @@ function getTime(time) {
  * @returns {string}
  */
 function getSeconds(time) {
-  return time.substr(0, time.indexOf(':'));
+  if (time.indexOf(':') !== -1) {
+    return time.substr(0, time.indexOf(':'));
+  }
+
+  return '0';
 }
 
 /**
@@ -68,7 +70,11 @@ function getSeconds(time) {
  * @returns {string}
  */
 function getMilliseconds(time) {
-  return time.substr(time.indexOf(':') + 1);
+  if (time.indexOf(':') !== -1) {
+    return time.substr(time.indexOf(':') + 1);
+  }
+
+  return '0';
 }
 
 /**
@@ -245,7 +251,7 @@ function handleOnDown(e) {
 
   if (activeScene.children) {
     activeScene.children.forEach(child => {
-      if (!child.disabled && child.onDown && child.collidesWith({
+      if (!child.disabled && child.active && child.onDown && child.collidesWith({
         // center the click
         x: x - 5,
         y: y - 5,
@@ -474,6 +480,8 @@ function start() {
     loop.start();
     // audio.volume = options.music / 10;
     activeScene = {name: 'game'};
+    tutorialScene.show();
+    showTutorialBars = true;
     // audio.play();
   }, fadeTime);
 }
@@ -529,20 +537,27 @@ function setFont(size) {
   ctx.font = size * options.uiScale + "px 'Lucida Console', Monaco, monospace";
 }
 
-function renderControllerHelpText(text, size, x, y) {
+function renderAButton(x, y) {
   ctx.save();
-  setFont(25);
   ctx.fillStyle = 'green';
   ctx.beginPath();
-  ctx.arc(x, kontra.canvas.height - y, fontMeasurement, 0, Math.PI * 2);
+  ctx.arc(x, y, fontMeasurement, 0, Math.PI * 2);
   ctx.fill();
+  ctx.fillStyle = 'black';
+  setFont(27);
+  ctx.fillText('A', x - fontMeasurement / 2, y + fontMeasurement / 2);
   ctx.fillStyle = 'white';
-  ctx.shadowColor = 'black';
-  ctx.shadowBlur = 7;
-  ctx.fillText('A', x - fontMeasurement / 2, kontra.canvas.height - y + fontMeasurement / 2);
+  setFont(25);
+  ctx.fillText('A', x - fontMeasurement / 2, y + fontMeasurement / 2);
+  ctx.restore();
+}
 
+function renderControllerHelpText(text, size, x, y) {
+  ctx.save();
+  renderAButton(x, y);
   setFont(size);
-  ctx.fillText(text, x + fontMeasurement * 1.5, kontra.canvas.height - y + fontMeasurement / 2.5);
+  ctx.fillStyle = 'white';
+  ctx.fillText(text, x + fontMeasurement * 1.5, y + fontMeasurement / 2.5);
   ctx.restore();
 }
 
@@ -555,7 +570,7 @@ function showHelpText() {
     ctx.fillText('[Space] Select', 50 - fontMeasurement, kontra.canvas.height - 50 + fontMeasurement / 2.5);
   }
   else if (lastUsedInput === 'gamepad') {
-    renderControllerHelpText('Select', 18, 50, 50);
+    renderControllerHelpText('Select', 18, 50, kontra.canvas.height - 50);
   }
 
   ctx.restore();
@@ -711,18 +726,22 @@ function Scene(name) {
     children: [],
     inc: 0.05,
     hide(cb) {
+      this.hidden = true;
       sceneEl.hidden = true;
       this.alpha = 1;
       this.inc = -0.05;
       setTimeout(() => {
         this.children.forEach(child => {
           child.active = false
-          child.domEl.hidden = true;
+          if (child.domEl) {
+            child.domEl.hidden = true;
+          }
         });
         cb && cb();
       }, fadeTime);
     },
     show(cb) {
+      this.hidden = false;
       sceneEl.hidden = false;
       activeScene = this;
       this.alpha = 0;
@@ -730,7 +749,9 @@ function Scene(name) {
       setTimeout(() => {
         this.children.forEach(child => {
           child.active = true
-          child.domEl.hidden = false;
+          if (child.domEl) {
+            child.domEl.hidden = false;
+          }
         });
 
         if (this.onShow) this.onShow();
@@ -741,7 +762,10 @@ function Scene(name) {
       Array.from(arguments).forEach(child => {
         child.parent = this;
         this.children.push(child);
-        sceneEl.appendChild(child.domEl);
+
+        if (child.domEl) {
+          sceneEl.appendChild(child.domEl);
+        }
       });
     },
     update() {
@@ -822,12 +846,6 @@ let opts = [{
 },
 {
   name: 'gameSpeed',
-  minValue: 0.1,
-  maxValue: 2,
-  inc: 0.05
-},
-{
-  name: 'intensity',
   minValue: 0.1,
   maxValue: 2,
   inc: 0.05
@@ -933,207 +951,68 @@ optionsScene.add(saveBtn, cancelBtn);
 
 
 //------------------------------------------------------------
-// Audio functions
-//------------------------------------------------------------
-let context = new (window.AudioContext || window.webkitAudioContext)();
-
-/**
- * Load audio file as an ArrayBuffer.
- * @param {string} url - URL of the audio file
- * @returns {Promise} resolves with decoded audio data
- */
-function loadAudioBuffer(url) {
-
-  // we can't use fetch because response.arrayBuffer() isn't supported
-  // in lots of browsers
-  return new Promise((resolve, reject) => {
-    let request = new XMLHttpRequest();
-    request.responseType = 'arraybuffer';
-
-    request.onload = function() {
-      context.decodeAudioData(request.response, decodedData => {
-        resolve(decodedData)
-      });
-    };
-
-    request.open('GET', url, true);
-    request.send();
-  });
-}
-
-/**
- * Load audio file as an Audio element.
- * @param {string} url - URL of the audio file
- * @returns {Promise} resolves with audio element
- */
-function loadAudio(url) {
-  return new Promise((resolve, reject) => {
-    let audioEl = document.createElement('audio');
-
-    audioEl.addEventListener('canplay', function() {
-      resolve(this);
-    });
-
-    audioEl.onerror = function(e) {
-      console.error('e:', e);
-      reject(e);
-    };
-
-    audioEl.src = url;
-    audioEl.load();
-  })
-}
-
-/**
- * Generate the wave data for an audio file.
- * @param {string} url - URL of the audio file
- */
-async function generateWaveData(url) {
-  buffer = await loadAudioBuffer(url);
-  audio = await loadAudio(url);
-
-  // numPeaks determines the speed of the game, the less peaks per duration, the
-  // slower the game plays
-  let height = waveHeight * options.intensity;
-  let numPeaks = audio.duration / 8 | 0;
-  peaks = exportPCM(1024 * numPeaks);  // change this by increments of 1024 to get more peaks
-
-  startBuffer = new Array(maxLength / 2 | 0).fill(0);
-
-  let waves = peaks
-    .map((peak, index) => peak >= 0 ? peak : peaks[index-1]);
-
-  let pos = mid;  // position of next turn
-  let lastPos = 0;  // position of the last turn
-  let gapDistance = maxLength;  // how long to get to the next turn
-  let step = 0;  // increment of each peak to pos
-  let offset = 0;  // offset the wave data position to create curves
-  let minBarDistance = 270;  // min distance between top and bottom wave bars
-
-  let heightDt = minBarDistance - height + 10;  // distance between max height and wave height
-  let heightStep = heightDt / (startBuffer.length + waves.length);  // game should reach the max bar height by end of the song
-
-  let counter = 0;
-
-  waveData = startBuffer
-    .concat(waves)
-    .map((peak, index) => {
-      offset += step;
-
-      if (++counter >= gapDistance) {
-        counter = 0;
-        lastPos = pos;
-        pos = mid + (Math.random() * 600 - 300);  // generate random number between -300 and 300
-        gapDistance = 300 + (Math.random() * 200 - 100);  // generate random number between 200 and 400
-        step = (pos - lastPos) / gapDistance;
-      }
-
-
-      return {
-        x: index * waveWidth,
-        y: 0,
-        width: waveWidth,
-        height: 160 + peak * height + heightStep * index,
-        offset: offset
-      }
-    });
-
-  return Promise.resolve();
-}
-
-
-
-
-
-//------------------------------------------------------------
-// Ship
+// Tutorial Scene
 //------------------------------------------------------------
 let isTutorial = true;
 let tutorialMove = 0;
-let ship = kontra.sprite({
-  x: kontra.canvas.width / 2 - waveWidth / 2,
-  y: kontra.canvas.height / 2 - waveWidth / 2,
-  width: waveWidth,
-  height: waveWidth,
-  gravity: 5,
-  points: [],
-  maxAcc: 8,
-  update() {
-    if (kontra.keys.pressed('space') || touchPressed || (gamepad && gamepad.buttons[0].pressed)) {
-      this.ddy = -this.gravity;
-    }
-    else {
-      this.ddy = this.gravity;
-    }
+let tutorialMoveInc = 3;
+let showTutorialBars = false;
 
-    if (isTutorial) return;
-
-    this.y += this.dy;
-    this.dy += this.ddy;
-
-    let maxAcc = this.maxAcc / (1 / audio.playbackRate);
-    if (Math.sqrt(this.dy * this.dy) > maxAcc) {
-      this.dy = this.dy < 0 ? -maxAcc : maxAcc;
-    }
-
-  },
-  render(move) {
-    this.points.push({x: this.x + move, y: this.y});
-    neonRect(this.x, this.y, this.width, this.height, 0, 163, 220);
-    neonLine(this.points, move, 0, 163, 220);
-  }
-});
-
-
-
-
-
-//------------------------------------------------------------
-// Game loop
-//------------------------------------------------------------
-loop = kontra.gameLoop({
-  update() {
-    updateGamepad();
-
-    if (activeScene.render) activeScene.update();
-
-    if (activeScene.name !== 'game') return;
-
-    ship.update();
-  },
-  render() {
-
-    if (activeScene.render) activeScene.render();
-
-    showHelpText();
-
-    if (activeScene.name !== 'game') return;
-
-    ctx.fillStyle = '#00a3dc';
-    ctx.fillRect(0, 0, kontra.canvas.width, 160);
-    ctx.fillRect(0, kontra.canvas.height - 160, kontra.canvas.width, 160);
-    tutorialMove += 2;
-    ship.render(tutorialMove);
-
-    setFont(18);
+let tutorialScene = Scene('tutorial');
+let tutorialText = Text({
+  x: kontra.canvas.width / 2,
+  y: kontra.canvas.height / 2 - 200,
+  center: true,
+  text() {
+    let text = 'Tap or Hold';
 
     if (lastUsedInput === 'gamepad') {
-      renderControllerHelpText('Dodge', 25, kontra.canvas.width / 2 - fontMeasurement * 3, kontra.canvas.height / 2 + 100);
+      renderAButton(this.x - fontMeasurement * 1.5, this.y + fontMeasurement * 1.5);
+    }
+    else if (lastUsedInput === 'keyboard' || lastUsedInput === 'mouse') {
+      text = '[Space] ' + text;
     }
 
-    return;
+    return text;
+  }
+});
+tutorialScene.add(tutorialText);
 
+
+
+
+
+//------------------------------------------------------------
+// Game Scene
+//------------------------------------------------------------
+let startMove = -kontra.canvas.width / 2 | 0;
+let count = 0;
+let gameScene = Scene('game');
+gameScene.add({
+  render() {
     // context.currentTime would be as long as the audio took to load, so was
     // always off. seems it's not meant for large files. better to use audio
     // element and play it right on time
     // @see https://stackoverflow.com/questions/33006650/web-audio-api-and-real-current-time-when-playing-an-audio-file
 
     // calculate speed of the audio wave based on the current time
-    let move = Math.round((audio.currentTime / audio.duration) * (peaks.length * waveWidth));
-    let ampBar, ampBarIndex;
+    let move, startIndex, ampBar, ampBarIndex;
+    if (audio.currentTime) {
+      move = Math.round((audio.currentTime / audio.duration) * (peaks.length * waveWidth));
+      startIndex = move / waveWidth | 0;
+    }
+    else {
+      move = startMove + tutorialMoveInc * count;
+      startIndex = 0;
+      count++;
+
+      if (move >= 0) {
+        showTutorialBars = false;
+        audio.play();
+      }
+    }
 
     // only draw the bars on the screen
-    let startIndex = move / waveWidth | 0;
     for (let i = startIndex; i < startIndex + maxLength && waveData[i]; i++) {
       let wave = waveData[i];
       let x = wave.x - move;
@@ -1230,6 +1109,209 @@ loop = kontra.gameLoop({
 
     if (waveData[waveData.length - 1].x - move <= kontra.canvas.width / 2) {
       win();
+    }
+  }
+})
+
+
+
+
+
+//------------------------------------------------------------
+// Audio functions
+//------------------------------------------------------------
+let context = new (window.AudioContext || window.webkitAudioContext)();
+
+/**
+ * Load audio file as an ArrayBuffer.
+ * @param {string} url - URL of the audio file
+ * @returns {Promise} resolves with decoded audio data
+ */
+function loadAudioBuffer(url) {
+
+  // we can't use fetch because response.arrayBuffer() isn't supported
+  // in lots of browsers
+  return new Promise((resolve, reject) => {
+    let request = new XMLHttpRequest();
+    request.responseType = 'arraybuffer';
+
+    request.onload = function() {
+      context.decodeAudioData(request.response, decodedData => {
+        resolve(decodedData)
+      });
+    };
+
+    request.open('GET', url, true);
+    request.send();
+  });
+}
+
+/**
+ * Load audio file as an Audio element.
+ * @param {string} url - URL of the audio file
+ * @returns {Promise} resolves with audio element
+ */
+function loadAudio(url) {
+  return new Promise((resolve, reject) => {
+    let audioEl = document.createElement('audio');
+
+    audioEl.addEventListener('canplay', function() {
+      resolve(this);
+    });
+
+    audioEl.onerror = function(e) {
+      console.error('e:', e);
+      reject(e);
+    };
+
+    audioEl.src = url;
+    audioEl.load();
+  })
+}
+
+/**
+ * Generate the wave data for an audio file.
+ * @param {string} url - URL of the audio file
+ */
+async function generateWaveData(url) {
+  buffer = await loadAudioBuffer(url);
+  audio = await loadAudio(url);
+
+  // numPeaks determines the speed of the game, the less peaks per duration, the
+  // slower the game plays
+  let height = waveHeight;
+  let numPeaks = audio.duration / 8 | 0;
+  peaks = exportPCM(1024 * numPeaks);  // change this by increments of 1024 to get more peaks
+
+  startBuffer = new Array(maxLength / 2 | 0).fill(0);
+
+  let waves = peaks
+    .map((peak, index) => peak >= 0 ? peak : peaks[index-1]);
+
+  let pos = mid;  // position of next turn
+  let lastPos = 0;  // position of the last turn
+  let gapDistance = maxLength;  // how long to get to the next turn
+  let step = 0;  // increment of each peak to pos
+  let offset = 0;  // offset the wave data position to create curves
+  let minBarDistance = 270;  // min distance between top and bottom wave bars
+
+  let heightDt = minBarDistance - height + 10;  // distance between max height and wave height
+  let heightStep = heightDt / (startBuffer.length + waves.length);  // game should reach the max bar height by end of the song
+
+  let counter = 0;
+
+  waveData = startBuffer
+    .concat(waves)
+    .map((peak, index) => {
+      offset += step;
+
+      if (++counter >= gapDistance) {
+        counter = 0;
+        lastPos = pos;
+        pos = mid + (Math.random() * 600 - 300);  // generate random number between -300 and 300
+        gapDistance = 300 + (Math.random() * 200 - 100);  // generate random number between 200 and 400
+        step = (pos - lastPos) / gapDistance;
+      }
+
+
+      return {
+        x: index * waveWidth,
+        y: 0,
+        width: waveWidth,
+        height: 160 + peak * height + heightStep * index,
+        offset: offset
+      }
+    });
+
+  return Promise.resolve();
+}
+
+
+
+
+
+//------------------------------------------------------------
+// Ship
+//------------------------------------------------------------
+let ship = kontra.sprite({
+  x: kontra.canvas.width / 2 - waveWidth / 2,
+  y: kontra.canvas.height / 2 - waveWidth / 2,
+  width: waveWidth,
+  height: waveWidth,
+  gravity: 5,
+  points: [],
+  maxAcc: 8,
+  update() {
+    if (kontra.keys.pressed('space') || touchPressed || (gamepad && gamepad.buttons[0].pressed)) {
+      this.ddy = -this.gravity;
+
+      isTutorial = false;
+    }
+    else {
+      this.ddy = this.gravity;
+    }
+
+    if (isTutorial) return;
+
+    this.y += this.dy;
+    this.dy += this.ddy;
+
+    let maxAcc = this.maxAcc / (1 / audio.playbackRate);
+    if (Math.sqrt(this.dy * this.dy) > maxAcc) {
+      this.dy = this.dy < 0 ? -maxAcc : maxAcc;
+    }
+
+  },
+  render(move) {
+    this.points.push({x: this.x + move, y: this.y});
+    neonRect(this.x, this.y, this.width, this.height, 0, 163, 220);
+    neonLine(this.points, move, 0, 163, 220);
+  }
+});
+
+
+
+
+
+//------------------------------------------------------------
+// Game loop
+//------------------------------------------------------------
+loop = kontra.gameLoop({
+  update() {
+    updateGamepad();
+
+    if (activeScene.update) activeScene.update();
+
+    if (activeScene.name === 'tutorial' || activeScene.name === 'game') {
+      ship.update();
+    }
+
+    if (activeScene.name === 'tutorial' && !isTutorial && !tutorialScene.hidden) {
+      tutorialScene.hide(() => {
+        for (let count = 0, i = ship.points.length - 1, point; point = ship.points[i]; i--) {
+          point.x = 0 - tutorialMoveInc * count++;
+        }
+        gameScene.show();
+      });
+    }
+  },
+  render() {
+
+    if (showTutorialBars) {
+      ctx.fillStyle = '#00a3dc';
+      ctx.fillRect(0, 0, kontra.canvas.width, 160);
+      ctx.fillRect(0, kontra.canvas.height - 160, kontra.canvas.width, 160);
+    }
+
+    if (activeScene.render) activeScene.render();
+
+    if (activeScene.name === 'menu' || activeScene.name === 'options') {
+      showHelpText();
+    }
+
+    if (activeScene.name === 'tutorial') {
+      tutorialMove += tutorialMoveInc;
+      ship.render(tutorialMove);
     }
   }
 });
