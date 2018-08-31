@@ -90,6 +90,7 @@ let startBtn = button({
   text: 'START',
   onDown() {
     audio.play();
+    audio.pause();
     menuScene.hide(() => {
       start();
     });
@@ -299,7 +300,7 @@ gameScene.add({
 
         if (move >= 0) {
           showTutorialBars = false;
-          // audio.play();
+          audio.play();
         }
       }
     }

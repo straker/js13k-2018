@@ -207,10 +207,8 @@ function start() {
 
   startMove = -kontra.canvas.width / 2 | 0;
   startCount = 0;
-  // audio.play();
-  // audio.pause();
-  // audio.currentTime = 0;
-  // audio.volume = options.music;
+  audio.currentTime = 0;
+  audio.volume = options.music;
   audio.playbackRate = options.gameSpeed;
   ship.points = [];
   ship.y = mid;
@@ -1042,6 +1040,7 @@ let startBtn = button({
   text: 'START',
   onDown() {
     audio.play();
+    audio.pause();
     menuScene.hide(() => {
       start();
     });
@@ -1251,7 +1250,7 @@ gameScene.add({
 
         if (move >= 0) {
           showTutorialBars = false;
-          // audio.play();
+          audio.play();
         }
       }
     }
