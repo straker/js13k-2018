@@ -298,7 +298,7 @@ gameScene.add({
 
         if (move >= 0) {
           showTutorialBars = false;
-          audio.play();
+          // audio.play();
         }
       }
     }

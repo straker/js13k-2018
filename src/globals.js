@@ -94,7 +94,7 @@ function start() {
   startMove = -kontra.canvas.width / 2 | 0;
   startCount = 0;
   audio.play();
-  audio.pause();
+  // audio.pause();
   audio.currentTime = 0;
   audio.volume = options.music;
   audio.playbackRate = options.gameSpeed;
