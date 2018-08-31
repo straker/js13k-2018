@@ -2,7 +2,7 @@
   "start": "START",
   "upload": "UPLOAD",
   "options": "OPTIONS",
-  "keyboardSpace": "[Space]",
+  "keyboardSpace": "[Spacebar]",
   "select": "Select",
   "music": "MUSIC",
   "uiScale": "UI SCALE",
@@ -11,5 +11,6 @@
   "save": "SAVE",
   "cancel": "CANCEL",
   "time": "TIME",
-  "best": "BEST"
+  "best": "BEST",
+  "tapHold": "Tap or Hold"
 }

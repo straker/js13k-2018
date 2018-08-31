@@ -1,5 +1,5 @@
-let mergedPeaks = [];
-let splitPeaks = [];
+let mergedPeaks;
+let splitPeaks;
 
 /**
  * Wave code taken from wavesurfer.js
