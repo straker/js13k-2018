@@ -89,6 +89,7 @@ let startBtn = button({
   y: kontra.canvas.height / 2,
   text: 'START',
   onDown() {
+    audio.play();
     menuScene.hide(() => {
       start();
     });
