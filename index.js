@@ -207,6 +207,8 @@ function start() {
 
   startMove = -kontra.canvas.width / 2 | 0;
   startCount = 0;
+  audio.play();
+  audio.pause();
   audio.currentTime = 0;
   audio.volume = options.music;
   audio.playbackRate = options.gameSpeed;
@@ -580,7 +582,6 @@ window.addEventListener('contextmenu', e => {
  * Detect if a button was clicked.
  */
 function handleOnDown(e) {
-  e.preventDefault();
   touchPressed = true;
 
   let pageX, pageY;

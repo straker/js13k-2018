@@ -22,7 +22,6 @@ window.addEventListener('contextmenu', e => {
  * Detect if a button was clicked.
  */
 function handleOnDown(e) {
-  e.preventDefault();
   touchPressed = true;
 
   let pageX, pageY;
