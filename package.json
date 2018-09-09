@@ -9,7 +9,9 @@
   },
   "devDependencies": {
     "gulp": "^3.9.1",
+    "gulp-add-src": "^1.0.0",
     "gulp-concat": "^2.6.1",
+    "gulp-plumber": "^1.2.0",
     "gulp-rename": "^1.4.0",
     "gulp-size": "^3.0.0",
     "gulp-terser": "^1.0.1",

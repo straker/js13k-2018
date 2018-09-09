@@ -31,7 +31,7 @@ function setDimensions(uiEl) {
  * Button UI element.
  * @param {object} props - Properties of the button
  */
-function button(props) {
+function Button(props) {
   props.orgX = props.x;
   props.orgY = props.y;
   props.type = 'button';

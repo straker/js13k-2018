@@ -111,7 +111,6 @@ kontra.keys.bind('space', () => {
 
   if (focusedBtn && focusedBtn.onDown) {
     focusedBtn.onDown();
-    focusedBtn.blur();
   }
 });
 

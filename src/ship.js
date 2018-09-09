@@ -24,15 +24,14 @@ let ship = kontra.sprite({
     this.y += this.dy;
     this.dy += this.ddy;
 
-    let maxAcc = this.maxAcc / (1 / audio.playbackRate);
+    let maxAcc = this.maxAcc// / (1 / audio.playbackRate);
     if (Math.sqrt(this.dy * this.dy) > maxAcc) {
       this.dy = this.dy < 0 ? -maxAcc : maxAcc;
     }
-
   },
   render(move) {
-    if (!gameOverScene.active) {
-      this.points.push({x: this.x + move, y: this.y});
+    if (numUpdates >= 1 && !gameOverScene.active && !winScene.active) {
+      this.points.push({x: this.x + move, y: this.y + 1});
     }
 
     neonRect(this.x, this.y, this.width, this.height, 0, 163, 220);

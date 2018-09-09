@@ -1,14 +1,23 @@
 //------------------------------------------------------------
 // Game loop
 //------------------------------------------------------------
+let updateCounter = 0;
+let numUpdates = 0;
 loop = kontra.gameLoop({
   update() {
     updateGamepad();
 
-    activeScenes.forEach(activeScene => activeScene.update())
+    activeScenes.forEach(scene => scene.update())
 
-    if ((tutorialScene.active || gameScene.active) && !gameOverScene.active) {
-      ship.update();
+    if ((tutorialScene.active || gameScene.active) && !gameOverScene.active && !winScene.active) {
+      numUpdates = 0;
+      updateCounter += audio.playbackRate;
+
+      while (updateCounter >= 1) {
+        numUpdates++
+        updateCounter--;
+        ship.update();
+      }
     }
 
     if (tutorialScene.active && !isTutorial && !tutorialScene.isHidding) {
@@ -29,7 +38,7 @@ loop = kontra.gameLoop({
       ctx.fillRect(0, kontra.canvas.height - 160, kontra.canvas.width, 160);
     }
 
-    activeScenes.forEach(activeScene => activeScene.render())
+    activeScenes.forEach(scene => scene.render())
 
     if (menuScene.active || optionsScene.active) {
       showHelpText();

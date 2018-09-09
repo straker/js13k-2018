@@ -156,8 +156,20 @@ let fadeTime = 450;  // how long a scene takes to fade
 //------------------------------------------------------------
 // Helper functions
 //------------------------------------------------------------
+
+/**
+ * Clamp a value between min and max values.
+ * @param {number} value - Value to clamp.
+ * @param {number} min - Min value.
+ * @param {number} max - Max value.
+ */
 function clamp(value, min, max) {
   return Math.min( Math.max(min, value), max);
+}
+
+
+function getRandom(min, max) {
+  return Math.random() * (max - min) + min;
 }
 
 
@@ -167,31 +179,6 @@ function clamp(value, min, max) {
 //------------------------------------------------------------
 // Main functions
 //------------------------------------------------------------
-uploadFile.addEventListener('change', uploadAudio);
-
-/**
- * Upload an audio file from the users computer.
- * @param {Event} e - File change event
- */
-async function uploadAudio(e) {
-  // show(loader);
-  // hide(introText, winText, startBtn, customUpload, restartBtn);
-
-  // clear any previous uploaded song
-  URL.revokeObjectURL(objectUrl);
-
-  let file = e.currentTarget.files[0];
-  objectUrl = URL.createObjectURL(file);
-
-  await generateWaveData(objectUrl);
-  songName = uploadFile.value.replace(/^.*fakepath/, '').substr(1);
-  // songTitle.textContent = 'Playing: ' + songName;
-  console.log('done uploading');
-  getBestTime();
-
-  // hide(loader);
-  // show(songTitle, startBtn);
-}
 
 /**
  * Start the game.
@@ -225,20 +212,17 @@ function start() {
 function gameOver() {
   audio.pause();
   setBestTime();
-
-  // give player enough time to recover from controlling the ship before they can
-  // click the restart button with the spacebar
   gameOverScene.show(() => restartBtn.focus());
 }
 
 // /**
 //  * Show win screen.
 //  */
-// function win() {
-//   loop.stop();
-//   setBestTime();
-//   show(winText, customUpload);
-// }
+function win() {
+  audio.pause();
+  setBestTime();
+  winScene.show(() => winMenuBtn.focus());
+}
 
 // /**
 //  * Show intro screen.
@@ -253,19 +237,154 @@ function gameOver() {
 // function loading() {
 
 // }
+//------------------------------------------------------------
+// Button
+//------------------------------------------------------------
+let uiSpacer = 15;
 
-async function main() {
-  setFontMeasurement();
+/**
+ * Set the dimensions of the UI element.
+ * @param {object} uiEl - UI element
+ */
+function setDimensions(uiEl) {
+  let text = typeof uiEl.text === 'function' ? uiEl.text() : uiEl.text;
+  uiEl.width = text.length * fontMeasurement + fontMeasurement * 2;
+  uiEl.height = fontMeasurement * 3;
 
-  // music from https://opengameart.org/content/adventure-theme
-  await generateWaveData('./' + songName);
-  getBestTime();
-  menuScene.show(() => startBtn.focus());
+  if (uiEl.center || uiEl.type === 'button') {
+    uiEl.x = uiEl.orgX - uiEl.width / 2;
+  }
+
+  // set the y position based on the position of another element
+  if (uiEl.prev) {
+    uiEl.y = uiEl.prev.y + uiEl.prev.height * 1.5 + uiSpacer / options.uiScale;
+  }
+  else {
+    uiEl.y = uiEl.orgY - uiEl.height / 2;
+  }
+
+  uiEl.y += uiEl.margin || 0;
+}
+
+/**
+ * Button UI element.
+ * @param {object} props - Properties of the button
+ */
+function Button(props) {
+  props.orgX = props.x;
+  props.orgY = props.y;
+  props.type = 'button';
+
+  setDimensions(props);
+
+  props.render = function() {
+    setDimensions(this);
+
+    ctx.save();
+    setFont(25);
+
+    ctx.fillStyle = '#222';
+    if (button.disabled) {
+      ctx.globalAlpha = clamp(this.parent.alpha - 0.65, 0, 1);
+    }
+
+    let args = [this.x, this.y, this.width, this.height];
+
+    ctx.fillRect.apply(ctx, args);
+
+    if (this.focused) {
+      args.push(255, 0, 0);
+      }
+    else if (this.disabled) {
+      args.push(100, 100, 100);
+    }
+    else {
+      args.push(0, 163, 220);
+    }
+
+    neonRect.apply(null, args);
+
+    ctx.fillStyle = '#fff';
+    ctx.fillText(this.text, this.x + fontMeasurement, this.y + fontMeasurement * 2);
+    ctx.restore();
+  };
+  props.focus = function() {
+    if (focusedBtn && focusedBtn.blur) focusedBtn.blur();
+
+    focusedBtn = this;
+    this.focused = true;
+    this.domEl.focus();
+  };
+  props.blur = function() {
+    this.focused = false;
+    focusedBtn = null;
+  };
+
+  let button = kontra.sprite(props);
+
+  // create accessible html button for screen readers
+  let el = document.createElement('button');
+  el.textContent = button.label || button.text;
+  el.addEventListener('focus', button.focus.bind(button));
+  button.domEl = el;
+
+  Object.defineProperty(button, 'disabled', {
+    get() { return this.domEl.disabled },
+    set(value) { this.domEl.disabled = value }
+  });
+
+  return button;
+}
+
+
+
+
+
+//------------------------------------------------------------
+// Text
+//------------------------------------------------------------
+function Text(props) {
+  props.orgX = props.x;
+  props.orgY = props.y;
+
+  setDimensions(props);
+
+  props.render = function() {
+    setDimensions(this);
+
+    let text = typeof this.text === 'function' ? this.text() : this.text;
+    if (this.lastText !== text) {
+      this.lastText = text;
+      this.domEl.textContent = text;
+    }
+
+    ctx.save();
+    ctx.fillStyle = '#fff';
+    setFont(25);
+    ctx.fillText(text, this.x + fontMeasurement, this.y + fontMeasurement * 2);
+    ctx.restore();
+  };
+
+  let text = kontra.sprite(props);
+
+  // create accessible html text for screen readers
+  let el = document.createElement('div');
+
+  // announce changes to screen reader
+  if (typeof props.text === 'function') {
+    el.setAttribute('role', 'alert');
+    el.setAttribute('aria-live', 'assertive');
+    el.setAttribute('aria-atomic', true);
+  }
+  text.domEl = el;
+
+  return text;
 }
 //------------------------------------------------------------
 // Audio functions
 //------------------------------------------------------------
 let context = new (window.AudioContext || window.webkitAudioContext)();
+uploadFile.addEventListener('change', uploadAudio);
 
 /**
  * Load audio file as an ArrayBuffer.
@@ -315,6 +434,31 @@ function loadAudio(url) {
 }
 
 /**
+ * Upload an audio file from the users computer.
+ * @param {Event} e - File change event
+ */
+async function uploadAudio(e) {
+  // show(loader);
+  // hide(introText, winText, startBtn, customUpload, restartBtn);
+
+  // clear any previous uploaded song
+  URL.revokeObjectURL(objectUrl);
+
+  let file = e.currentTarget.files[0];
+  objectUrl = URL.createObjectURL(file);
+
+  await generateWaveData(objectUrl);
+  songName = uploadFile.value.replace(/^.*fakepath/, '').substr(1);
+  // songTitle.textContent = 'Playing: ' + songName;
+  getBestTime();
+  uploadScene.hide();
+  startBtn.onDown();
+
+  // hide(loader);
+  // show(songTitle, startBtn);
+}
+
+/**
  * Generate the wave data for an audio file.
  * @param {string} url - URL of the audio file
  */
@@ -324,14 +468,21 @@ async function generateWaveData(url) {
 
   // numPeaks determines the speed of the game, the less peaks per duration, the
   // slower the game plays
-  let height = waveHeight;
   let numPeaks = audio.duration / 8 | 0;
   peaks = exportPCM(1024 * numPeaks);  // change this by increments of 1024 to get more peaks
 
   startBuffer = new Array(maxLength / 2 | 0).fill(0);
 
+  // remove all negative peaks
   let waves = peaks
     .map((peak, index) => peak >= 0 ? peak : peaks[index-1]);
+
+  // let averagePeaks = [0,0,0,0,0,0,0,0,0,0,0];
+  // waves.forEach(peak => {
+  //   averagePeaks[peak * 10 | 0]++;
+  // });
+
+  // console.log(averagePeaks);
 
   let pos = mid;  // position of next turn
   let lastPos = 0;  // position of the last turn
@@ -340,15 +491,25 @@ async function generateWaveData(url) {
   let offset = 0;  // offset the wave data position to create curves
   let minBarDistance = 270;  // min distance between top and bottom wave bars
 
-  let heightDt = minBarDistance - height + 10;  // distance between max height and wave height
+  let heightDt = minBarDistance - waveHeight + 10;  // distance between max height and wave height
   let heightStep = heightDt / (startBuffer.length + waves.length);  // game should reach the max bar height by end of the song
 
   let counter = 0;
+  let yOffset = 0;  // offset the center of the two waves
+  let lastYIndex = 0;  // last offset index
+  let lastOffsetValue = 0;
+
+  let lastYPos = 0;
+  let yStep = 0;
+  let yCounter = 0;
+  let yGapDistance = maxLength;
+  let yPos = 0;
 
   waveData = startBuffer
     .concat(waves)
     .map((peak, index) => {
       offset += step;
+      yOffset += yStep;
 
       if (++counter >= gapDistance) {
         counter = 0;
@@ -358,13 +519,32 @@ async function generateWaveData(url) {
         step = (pos - lastPos) / gapDistance;
       }
 
+      // if (++yCounter >= yGapDistance) {
+      //   yCounter = 0;
+      //   lastYPos = yPos;
+      //   yPos = 0 + (Math.random() * 360 - 180);
+      //   yGapDistance = 250 + (Math.random() * 200 - 100);  // generate random number between 100 and 300
+      //   yStep = (yPos - lastYPos) / yGapDistance;
+      // }
+
+      let height = 160 + peak * waveHeight + heightStep * index;
+      // if (peak > 0.50) {
+      //   height = kontra.canvas.height / 2 - 75;
+      // }
+
+      // if (index - lastYIndex > 25) {
+      //   lastYIndex = index;
+      // }
 
       return {
         x: index * waveWidth,
         y: 0,
         width: waveWidth,
-        height: 160 + peak * height + heightStep * index,
-        offset: offset
+        height: height,
+        offset: offset,
+        yOffset: 0,
+        // offset: 0,
+        // yOffset: lastYIndex == index && peak > 0.50 /*&& Math.abs(step) < 0.7*/ ? yOffset : 0
       }
     });
 
@@ -403,7 +583,7 @@ function neonRect(x, y, w, h, r, g, b) {
   ctx.lineWidth = 1.5;
   ctx.strokeRect(x, y, w, h);
   ctx.restore();
-};
+}
 
 /**
  * Line to each point.
@@ -449,6 +629,34 @@ function neonLine(points, move, r, g, b) {
   ctx.lineWidth = 1.5;
   drawLines(points, move);
 
+  ctx.restore();
+}
+
+/**
+ * Draw neon text in the given color
+ * @param {string} text - Text to render
+ * @param {number} x - X position of the text
+ * @param {number} y - Y position of the text
+ * @param {number} r - Red value
+ * @param {number} g - Green value
+ * @param {number} b - Blue value
+ */
+function neonText(text, x, y, r, g, b, alhpa) {
+  ctx.save();
+  ctx.globalAlpha = 0.2;
+  ctx.strokeStyle = "rgb(" + r + "," + g + "," + b + ")";
+  ctx.lineWidth = 10.5;
+  ctx.strokeText(text, x, y);
+  ctx.lineWidth = 8;
+  ctx.strokeText(text, x, y);
+  ctx.lineWidth = 5.5;
+  ctx.strokeText(text, x, y);
+  ctx.lineWidth = 3;
+  ctx.strokeText(text, x, y);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 1.5;
+  ctx.strokeText(text, x, y);
   ctx.restore();
 };
 
@@ -669,7 +877,6 @@ kontra.keys.bind('space', () => {
 
   if (focusedBtn && focusedBtn.onDown) {
     focusedBtn.onDown();
-    focusedBtn.blur();
   }
 });
 
@@ -763,14 +970,23 @@ function updateGamepad() {
 //------------------------------------------------------------
 // Game loop
 //------------------------------------------------------------
+let updateCounter = 0;
+let numUpdates = 0;
 loop = kontra.gameLoop({
   update() {
     updateGamepad();
 
-    activeScenes.forEach(activeScene => activeScene.update())
+    activeScenes.forEach(scene => scene.update())
 
-    if ((tutorialScene.active || gameScene.active) && !gameOverScene.active) {
-      ship.update();
+    if ((tutorialScene.active || gameScene.active) && !gameOverScene.active && !winScene.active) {
+      numUpdates = 0;
+      updateCounter += audio.playbackRate;
+
+      while (updateCounter >= 1) {
+        numUpdates++
+        updateCounter--;
+        ship.update();
+      }
     }
 
     if (tutorialScene.active && !isTutorial && !tutorialScene.isHidding) {
@@ -791,7 +1007,7 @@ loop = kontra.gameLoop({
       ctx.fillRect(0, kontra.canvas.height - 160, kontra.canvas.width, 160);
     }
 
-    activeScenes.forEach(activeScene => activeScene.render())
+    activeScenes.forEach(scene => scene.render())
 
     if (menuScene.active || optionsScene.active) {
       showHelpText();
@@ -805,149 +1021,6 @@ loop = kontra.gameLoop({
 });
 
 loop.start();
-//------------------------------------------------------------
-// Button
-//------------------------------------------------------------
-let uiSpacer = 15;
-
-/**
- * Set the dimensions of the UI element.
- * @param {object} uiEl - UI element
- */
-function setDimensions(uiEl) {
-  let text = typeof uiEl.text === 'function' ? uiEl.text() : uiEl.text;
-  uiEl.width = text.length * fontMeasurement + fontMeasurement * 2;
-  uiEl.height = fontMeasurement * 3;
-
-  if (uiEl.center || uiEl.type === 'button') {
-    uiEl.x = uiEl.orgX - uiEl.width / 2;
-  }
-
-  // set the y position based on the position of another element
-  if (uiEl.prev) {
-    uiEl.y = uiEl.prev.y + uiEl.prev.height * 1.5 + uiSpacer / options.uiScale;
-  }
-  else {
-    uiEl.y = uiEl.orgY - uiEl.height / 2;
-  }
-
-  uiEl.y += uiEl.margin || 0;
-}
-
-/**
- * Button UI element.
- * @param {object} props - Properties of the button
- */
-function button(props) {
-  props.orgX = props.x;
-  props.orgY = props.y;
-  props.type = 'button';
-
-  setDimensions(props);
-
-  props.render = function() {
-    setDimensions(this);
-
-    ctx.save();
-    setFont(25);
-
-    ctx.fillStyle = '#222';
-    if (button.disabled) {
-      ctx.globalAlpha = clamp(this.parent.alpha - 0.65, 0, 1);
-    }
-
-    let args = [this.x, this.y, this.width, this.height];
-
-    ctx.fillRect.apply(ctx, args);
-
-    if (this.focused) {
-      args.push(255, 0, 0);
-      }
-    else if (this.disabled) {
-      args.push(100, 100, 100);
-    }
-    else {
-      args.push(0, 163, 220);
-    }
-
-    neonRect.apply(null, args);
-
-    ctx.fillStyle = '#fff';
-    ctx.fillText(this.text, this.x + fontMeasurement, this.y + fontMeasurement * 2);
-    ctx.restore();
-  };
-  props.focus = function() {
-    if (focusedBtn && focusedBtn.blur) focusedBtn.blur();
-
-    focusedBtn = this;
-    this.focused = true;
-    this.domEl.focus();
-  };
-  props.blur = function() {
-    this.focused = false;
-    focusedBtn = null;
-  };
-
-  let button = kontra.sprite(props);
-
-  // create accessible html button for screen readers
-  let el = document.createElement('button');
-  el.textContent = button.label || button.text;
-  el.addEventListener('focus', button.focus.bind(button));
-  button.domEl = el;
-
-  Object.defineProperty(button, 'disabled', {
-    get() { return this.domEl.disabled },
-    set(value) { this.domEl.disabled = value }
-  });
-
-  return button;
-}
-
-
-
-
-
-//------------------------------------------------------------
-// Text
-//------------------------------------------------------------
-function Text(props) {
-  props.orgX = props.x;
-  props.orgY = props.y;
-
-  setDimensions(props);
-
-  props.render = function() {
-    setDimensions(this);
-
-    let text = typeof this.text === 'function' ? this.text() : this.text;
-    if (this.lastText !== text) {
-      this.lastText = text;
-      this.domEl.textContent = text;
-    }
-
-    ctx.save();
-    ctx.fillStyle = '#fff';
-    setFont(25);
-    ctx.fillText(text, this.x + fontMeasurement, this.y + fontMeasurement * 2);
-    ctx.restore();
-  };
-
-  let text = kontra.sprite(props);
-
-  // create accessible html text for screen readers
-  let el = document.createElement('div');
-
-  // announce changes to screen reader
-  if (typeof props.text === 'function') {
-    el.setAttribute('role', 'alert');
-    el.setAttribute('aria-live', 'assertive');
-    el.setAttribute('aria-atomic', true);
-  }
-  text.domEl = el;
-
-  return text;
-}
 //------------------------------------------------------------
 // Scene
 //------------------------------------------------------------
@@ -1034,7 +1107,42 @@ function Scene(name) {
 // Menu Scene
 //------------------------------------------------------------
 let menuScene = Scene('menu');
-let startBtn = button({
+let nameText = Text({
+  text() {
+    ctx.save();
+
+    let points = [
+      {x: 50, y: 277},
+
+      {x: 80, y: 277},
+      {x: 88, y: 285},
+      {x: 96, y: 293},
+
+      {x: 104, y: 296},
+      {x: 112, y: 294},
+      {x: 120, y: 287},
+      {x: 128, y: 279},
+
+      {x: 136, y: 271},
+      {x: 144, y: 264},
+      {x: 152, y: 262},
+      {x: 160, y: 265},
+
+      {x: 168, y: 273},
+      {x: 176, y: 281},
+      {x: 206, y: 281}
+    ];
+
+    neonLine(points, 0, 0, 163, 220);
+    ctx.font = "150px 'Lucida Console', Monaco, monospace"
+    neonText('AUDIO', 50, 200, 0, 163, 220);
+    neonText('DASH', 231, 315, 255, 0, 0);
+    ctx.restore();
+
+    return '';
+  }
+})
+let startBtn = Button({
   x: kontra.canvas.width / 2,
   y: kontra.canvas.height / 2,
   text: 'START',
@@ -1046,15 +1154,17 @@ let startBtn = button({
     });
   }
 });
-let uploadBtn = button({
+let uploadBtn = Button({
   x: kontra.canvas.width / 2,
   prev: startBtn,
   text: 'UPLOAD',
   onDown() {
     uploadFile.click();
+    menuScene.hide();
+    uploadScene.show();
   }
 });
-let optionsBtn = button({
+let optionsBtn = Button({
   x: kontra.canvas.width / 2,
   prev: uploadBtn,
   text: 'OPTIONS',
@@ -1064,7 +1174,40 @@ let optionsBtn = button({
     });
   }
 });
-menuScene.add(startBtn, uploadBtn, optionsBtn);
+menuScene.add(nameText, startBtn, uploadBtn, optionsBtn);
+
+
+
+
+
+//------------------------------------------------------------
+// Upload Scene
+//------------------------------------------------------------
+let uploadScene = Scene('upload');
+let loadingTimer = 0;
+let uploadText = Text({
+  x: 245,
+  y: kontra.canvas.height / 2,
+  text() {
+    ++loadingTimer;
+    let text = 'LOADING';
+    if (loadingTimer >= 60) {
+      text += '.'
+    }
+    if (loadingTimer >= 120) {
+      text += '.'
+    }
+    if (loadingTimer >= 180) {
+      text += '.'
+    }
+    if (loadingTimer >= 240) {
+      loadingTimer = 0;
+    }
+
+    return text;
+  }
+});
+uploadScene.add(uploadText);
 
 
 
@@ -1121,7 +1264,7 @@ opts.forEach((opt, index) => {
     }
   });
 
-  let decBtn = button({
+  let decBtn = Button({
     x: 375,
     y: index === 0 ? startY : null,
     prev: index > 0 ? optionTexts[index-1] : null,
@@ -1138,7 +1281,7 @@ opts.forEach((opt, index) => {
     focusEl = decBtn;
   }
 
-  let incBtn = button({
+  let incBtn = Button({
     x: 575,
     y: index === 0 ? startY : null,
     prev: index > 0 ? optionTexts[index-1] : null,
@@ -1162,18 +1305,20 @@ opts.forEach((opt, index) => {
   optionTexts.push(optionText);
 });
 
-let saveBtn = button({
+let saveBtn = Button({
   x: kontra.canvas.width / 2,
   prev: optionTexts[optionTexts.length-1],
   margin: 45,
   text: 'SAVE',
   onDown() {
+    localStorage.setItem('js13k-2018:options', JSON.stringify(options));
+
     optionsScene.hide(() => {
-      menuScene.show(() => optionsBtn.domEl.focus());
+      menuScene.show(() => startBtn.domEl.focus());
     });
   }
 });
-let cancelBtn = button({
+let cancelBtn = Button({
   x: kontra.canvas.width / 2,
   prev: saveBtn,
   text: 'CANCEL',
@@ -1181,7 +1326,7 @@ let cancelBtn = button({
     optionsScene.hide(() => {
       options = beforeOptions;
       setFontMeasurement();
-      menuScene.show(() => optionsBtn.domEl.focus());
+      menuScene.show(() => startBtn.domEl.focus());
     });
   }
 });
@@ -1260,44 +1405,45 @@ gameScene.add({
       let wave = waveData[i];
       let x = wave.x - move;
 
+      let topY = wave.y;
+      let botY = kontra.canvas.height - wave.height - wave.offset + wave.yOffset;
+      let topHeight = wave.height - wave.offset + wave.yOffset;
+      let botHeight = wave.height + wave.offset - wave.yOffset;
+
       // keep track of the amp bar
       if (x > waveWidth * (maxLength / 2 - 1) && x < waveWidth * (maxLength / 2 + 1)) {
         ampBar = wave;
         ampBarIndex = i;
+
+        // collision detection
+        if (!gameOverScene.active) {
+          if ((ship.y < topY + topHeight &&
+               ship.y + ship.height > topY) ||
+              (ship.y < botY + botHeight &&
+               ship.y + ship.height > botY) ||
+              (ship.y < -50 || ship.y > kontra.canvas.height + 50)) {
+            return gameOver();
+          }
+        }
       }
       else {
         ctx.fillStyle = '#00a3dc';
-        ctx.fillRect(x, wave.y, wave.width, wave.height - wave.offset);  // top bar
-        ctx.fillRect(x, kontra.canvas.height - wave.height - wave.offset, wave.width, wave.height + wave.offset);  // bottom bar
+        ctx.fillRect(x, topY, wave.width, topHeight);  // top bar
+        ctx.fillRect(x, botY, wave.width, botHeight);  // bottom bar
       }
     }
 
     // draw amp bar
     if (ampBar) {
-      neonRect((ampBar.x - move) - waveWidth, ampBar.y, ampBar.width + waveWidth * 2, ampBar.height - ampBar.offset, 255, 0, 0);
-      neonRect((ampBar.x - move) - waveWidth, kontra.canvas.height - ampBar.y, ampBar.width + waveWidth * 2, -ampBar.height - ampBar.offset, 255, 0, 0);
+      let x = ampBar.x - move - waveWidth;
+      let width = ampBar.width + waveWidth * 2;
+      let topY = ampBar.y;
+      let botY = kontra.canvas.height - ampBar.height - ampBar.offset + ampBar.yOffset;
+      let topHeight = ampBar.height - ampBar.offset + ampBar.yOffset;
+      let botHeight = ampBar.height + ampBar.offset - ampBar.yOffset;
 
-      // collision detection
-      if (!gameOverScene.active) {
-        for (let i = ampBarIndex - 3; i < ampBarIndex + 3 && waveData[i]; i++) {
-          let wave = waveData[i];
-
-          if (ship.x < wave.x - move + wave.width &&
-              ship.x + ship.width > wave.x - move) {
-            let botY = kontra.canvas.height - wave.height - wave.offset;
-
-            if ((ship.y < wave.y + wave.height - wave.offset &&
-                 ship.y + ship.height > wave.y) ||
-                (ship.y < botY + wave.height + wave.offset &&
-                 ship.y + ship.height > botY)) {
-              return gameOver();
-            }
-          }
-        }
-        if (ship.y < -50 || ship.y > kontra.canvas.height + 50) {
-          return gameOver();
-        }
-      }
+      neonRect(x, topY, width, topHeight, 255, 0, 0);
+      neonRect(x, botY, width, botHeight, 255, 0, 0);
     }
 
     ship.render(move);
@@ -1308,7 +1454,7 @@ gameScene.add({
 
     drawTimeUi();
 
-    if (waveData[waveData.length - 1].x - move <= kontra.canvas.width / 2) {
+    if (!winScene.active && waveData[waveData.length - 1].x - move <= kontra.canvas.width / 2) {
       win();
     }
   }
@@ -1328,7 +1474,7 @@ let gameOverText = Text({
   center: true,
   text: 'GAME OVER'
 });
-let restartBtn = button({
+let restartBtn = Button({
   x: kontra.canvas.width / 2,
   prev: gameOverText,
   text: 'RESTART',
@@ -1338,8 +1484,45 @@ let restartBtn = button({
     gameScene.hide(() => start());
   }
 });
+let menuBtn = Button({
+  x: kontra.canvas.width / 2,
+  prev: restartBtn,
+  text: 'MAIN MENU',
+  onDown() {
+    gameScene.hide();
+    gameOverScene.hide(() => {
+      menuScene.show(() => startBtn.domEl.focus());
+    });
+  }
+});
+gameOverScene.add(gameOverText, restartBtn, menuBtn);
 
-gameOverScene.add(gameOverText, restartBtn);
+
+
+
+
+//------------------------------------------------------------
+// Win Scene
+//------------------------------------------------------------
+let winScene = Scene('win');
+let winText = Text({
+  x: kontra.canvas.width / 2,
+  y: kontra.canvas.height / 2,
+  center: true,
+  text: 'SONG COMPLETED!'
+});
+let winMenuBtn = Button({
+  x: kontra.canvas.width / 2,
+  prev: winText,
+  text: 'MAIN MENU',
+  onDown() {
+    gameScene.hide();
+    winScene.hide(() => {
+      menuScene.show(() => startBtn.domEl.focus());
+    });
+  }
+})
+winScene.add(winText, winMenuBtn);
 //------------------------------------------------------------
 // Ship
 //------------------------------------------------------------
@@ -1366,21 +1549,2366 @@ let ship = kontra.sprite({
     this.y += this.dy;
     this.dy += this.ddy;
 
-    let maxAcc = this.maxAcc / (1 / audio.playbackRate);
+    let maxAcc = this.maxAcc// / (1 / audio.playbackRate);
     if (Math.sqrt(this.dy * this.dy) > maxAcc) {
       this.dy = this.dy < 0 ? -maxAcc : maxAcc;
     }
-
   },
   render(move) {
-    if (!gameOverScene.active) {
-      this.points.push({x: this.x + move, y: this.y});
+    if (numUpdates >= 1 && !gameOverScene.active && !winScene.active) {
+      this.points.push({x: this.x + move, y: this.y + 1});
     }
 
     neonRect(this.x, this.y, this.width, this.height, 0, 163, 220);
     neonLine(this.points, move, 0, 163, 220);
   }
 });
+// //
+// // Sonant-X
+// //
+// // Copyright (c) 2014 Nicolas Vanhoren
+// //
+// // Sonant-X is a fork of js-sonant by Marcus Geelnard and Jake Taylor. It is
+// // still published using the same license (zlib license, see below).
+// //
+// // Copyright (c) 2011 Marcus Geelnard
+// // Copyright (c) 2008-2009 Jake Taylor
+// //
+// // This software is provided 'as-is', without any express or implied
+// // warranty. In no event will the authors be held liable for any damages
+// // arising from the use of this software.
+// //
+// // Permission is granted to anyone to use this software for any purpose,
+// // including commercial applications, and to alter it and redistribute it
+// // freely, subject to the following restrictions:
+// //
+// // 1. The origin of this software must not be misrepresented; you must not
+// //    claim that you wrote the original software. If you use this software
+// //    in a product, an acknowledgment in the product documentation would be
+// //    appreciated but is not required.
+// //
+// // 2. Altered source versions must be plainly marked as such, and must not be
+// //    misrepresented as being the original software.
+// //
+// // 3. This notice may not be removed or altered from any source
+// //    distribution.
+
+// var sonantx;
+// (function() {
+// "use strict";
+// sonantx = {};
+
+// var WAVE_SPS = 44100;                    // Samples per second
+// var WAVE_CHAN = 2;                       // Channels
+// var MAX_TIME = 33; // maximum time, in millis, that the generator can use consecutively
+
+// var audioCtx = null;
+
+// // Oscillators
+// function osc_sin(value)
+// {
+//     return Math.sin(value * 6.283184);
+// }
+
+// function osc_square(value)
+// {
+//     if(osc_sin(value) < 0) return -1;
+//     return 1;
+// }
+
+// function osc_saw(value)
+// {
+//     return (value % 1) - 0.5;
+// }
+
+// function osc_tri(value)
+// {
+//     var v2 = (value % 1) * 4;
+//     if(v2 < 2) return v2 - 1;
+//     return 3 - v2;
+// }
+
+// // Array of oscillator functions
+// var oscillators =
+// [
+//     osc_sin,
+//     osc_square,
+//     osc_saw,
+//     osc_tri
+// ];
+
+// function getnotefreq(n)
+// {
+//     return 0.00390625 * Math.pow(1.059463094, n - 128);
+// }
+
+// function genBuffer(waveSize, callBack) {
+//     setTimeout(function() {
+//         // Create the channel work buffer
+//         var buf = new Uint8Array(waveSize * WAVE_CHAN * 2);
+//         var b = buf.length - 2;
+//         var iterate = function() {
+//             var begin = new Date();
+//             var count = 0;
+//             while(b >= 0)
+//             {
+//                 buf[b] = 0;
+//                 buf[b + 1] = 128;
+//                 b -= 2;
+//                 count += 1;
+//                 if (count % 1000 === 0 && (new Date() - begin) > MAX_TIME) {
+//                     setTimeout(iterate, 0);
+//                     return;
+//                 }
+//             }
+//             setTimeout(function() {callBack(buf);}, 0);
+//         };
+//         setTimeout(iterate, 0);
+//     }, 0);
+// }
+
+// function applyDelay(chnBuf, waveSamples, instr, rowLen, callBack) {
+//     var p1 = (instr.fx_delay_time * rowLen) >> 1;
+//     var t1 = instr.fx_delay_amt / 255;
+
+//     var n1 = 0;
+//     var iterate = function() {
+//         var beginning = new Date();
+//         var count = 0;
+//         while(n1 < waveSamples - p1)
+//         {
+//             var b1 = 4 * n1;
+//             var l = 4 * (n1 + p1);
+
+//             // Left channel = left + right[-p1] * t1
+//             var x1 = chnBuf[l] + (chnBuf[l+1] << 8) +
+//                 (chnBuf[b1+2] + (chnBuf[b1+3] << 8) - 32768) * t1;
+//             chnBuf[l] = x1 & 255;
+//             chnBuf[l+1] = (x1 >> 8) & 255;
+
+//             // Right channel = right + left[-p1] * t1
+//             x1 = chnBuf[l+2] + (chnBuf[l+3] << 8) +
+//                 (chnBuf[b1] + (chnBuf[b1+1] << 8) - 32768) * t1;
+//             chnBuf[l+2] = x1 & 255;
+//             chnBuf[l+3] = (x1 >> 8) & 255;
+//             ++n1;
+//             count += 1;
+//             if (count % 1000 === 0 && (new Date() - beginning) > MAX_TIME) {
+//                 setTimeout(iterate, 0);
+//                 return;
+//             }
+//         }
+//         setTimeout(callBack, 0);
+//     };
+//     setTimeout(iterate, 0);
+// }
+
+// sonantx.AudioGenerator = function(mixBuf) {
+//     this.mixBuf = mixBuf;
+//     this.waveSize = mixBuf.length / WAVE_CHAN / 2;
+// };
+// sonantx.AudioGenerator.prototype.getWave = function() {
+//     var mixBuf = this.mixBuf;
+//     var waveSize = this.waveSize;
+//     // Local variables
+//     var b, k, x, wave, l1, l2, s, y;
+
+//     // Turn critical object properties into local variables (performance)
+//     var waveBytes = waveSize * WAVE_CHAN * 2;
+
+//     // Convert to a WAVE file (in a binary string)
+//     l1 = waveBytes - 8;
+//     l2 = l1 - 36;
+//     wave = String.fromCharCode(82,73,70,70,
+//                                l1 & 255,(l1 >> 8) & 255,(l1 >> 16) & 255,(l1 >> 24) & 255,
+//                                87,65,86,69,102,109,116,32,16,0,0,0,1,0,2,0,
+//                                68,172,0,0,16,177,2,0,4,0,16,0,100,97,116,97,
+//                                l2 & 255,(l2 >> 8) & 255,(l2 >> 16) & 255,(l2 >> 24) & 255);
+//     b = 0;
+//     while(b < waveBytes)
+//     {
+//         // This is a GC & speed trick: don't add one char at a time - batch up
+//         // larger partial strings
+//         x = "";
+//         for (k = 0; k < 256 && b < waveBytes; ++k, b += 2)
+//         {
+//             // Note: We amplify and clamp here
+//             y = 4 * (mixBuf[b] + (mixBuf[b+1] << 8) - 32768);
+//             y = y < -32768 ? -32768 : (y > 32767 ? 32767 : y);
+//             x += String.fromCharCode(y & 255, (y >> 8) & 255);
+//         }
+//         wave += x;
+//     }
+//     return wave;
+// };
+// sonantx.AudioGenerator.prototype.getAudio = function() {
+//     var wave = this.getWave();
+//     var a = new Audio("data:audio/wav;base64," + btoa(wave));
+//     a.preload = "none";
+//     a.load();
+//     return a;
+// };
+// sonantx.AudioGenerator.prototype.getAudioBuffer = function(callBack) {
+//     if (audioCtx === null)
+//         audioCtx = new AudioContext();
+//     var mixBuf = this.mixBuf;
+//     var waveSize = this.waveSize;
+
+//     var buffer = audioCtx.createBuffer(WAVE_CHAN, this.waveSize, WAVE_SPS); // Create Mono Source Buffer from Raw Binary
+//     var lchan = buffer.getChannelData(0);
+//     var rchan = buffer.getChannelData(1);
+//     var b = 0;
+//     var iterate = function() {
+//         var beginning = new Date();
+//         var count = 0;
+//         while (b < waveSize) {
+//             var y = 4 * (mixBuf[b * 4] + (mixBuf[(b * 4) + 1] << 8) - 32768);
+//             y = y < -32768 ? -32768 : (y > 32767 ? 32767 : y);
+//             lchan[b] = y / 32768;
+//             y = 4 * (mixBuf[(b * 4) + 2] + (mixBuf[(b * 4) + 3] << 8) - 32768);
+//             y = y < -32768 ? -32768 : (y > 32767 ? 32767 : y);
+//             rchan[b] = y / 32768;
+//             b += 1;
+//             count += 1;
+//             if (count % 1000 === 0 && new Date() - beginning > MAX_TIME) {
+//                 setTimeout(iterate, 0);
+//                 return;
+//             }
+//         }
+//         setTimeout(function() {callBack(buffer);}, 0);
+//     };
+//     setTimeout(iterate, 0);
+// };
+
+// sonantx.SoundGenerator = function(instr, rowLen) {
+//     this.instr = instr;
+//     this.rowLen = rowLen || 5605;
+
+//     this.osc_lfo = oscillators[instr.lfo_waveform];
+//     this.osc1 = oscillators[instr.osc1_waveform];
+//     this.osc2 = oscillators[instr.osc2_waveform];
+//     this.attack = instr.env_attack;
+//     this.sustain = instr.env_sustain;
+//     this.release = instr.env_release;
+//     this.panFreq = Math.pow(2, instr.fx_pan_freq - 8) / this.rowLen;
+//     this.lfoFreq = Math.pow(2, instr.lfo_freq - 8) / this.rowLen;
+// };
+// sonantx.SoundGenerator.prototype.genSound = function(n, chnBuf, currentpos) {
+//     var marker = new Date();
+//     var c1 = 0;
+//     var c2 = 0;
+
+//     // Precalculate frequencues
+//     var o1t = getnotefreq(n + (this.instr.osc1_oct - 8) * 12 + this.instr.osc1_det) * (1 + 0.0008 * this.instr.osc1_detune);
+//     var o2t = getnotefreq(n + (this.instr.osc2_oct - 8) * 12 + this.instr.osc2_det) * (1 + 0.0008 * this.instr.osc2_detune);
+
+//     // State variable init
+//     var q = this.instr.fx_resonance / 255;
+//     var low = 0;
+//     var band = 0;
+//     for (var j = this.attack + this.sustain + this.release - 1; j >= 0; --j)
+//     {
+//         var k = j + currentpos;
+
+//         // LFO
+//         var lfor = this.osc_lfo(k * this.lfoFreq) * this.instr.lfo_amt / 512 + 0.5;
+
+//         // Envelope
+//         var e = 1;
+//         if(j < this.attack)
+//             e = j / this.attack;
+//         else if(j >= this.attack + this.sustain)
+//             e -= (j - this.attack - this.sustain) / this.release;
+
+//         // Oscillator 1
+//         var t = o1t;
+//         if(this.instr.lfo_osc1_freq) t += lfor;
+//         if(this.instr.osc1_xenv) t *= e * e;
+//         c1 += t;
+//         var rsample = this.osc1(c1) * this.instr.osc1_vol;
+
+//         // Oscillator 2
+//         t = o2t;
+//         if(this.instr.osc2_xenv) t *= e * e;
+//         c2 += t;
+//         rsample += this.osc2(c2) * this.instr.osc2_vol;
+
+//         // Noise oscillator
+//         if(this.instr.noise_fader) rsample += (2*Math.random()-1) * this.instr.noise_fader * e;
+
+//         rsample *= e / 255;
+
+//         // State variable filter
+//         var f = this.instr.fx_freq;
+//         if(this.instr.lfo_fx_freq) f *= lfor;
+//         f = 1.5 * Math.sin(f * 3.141592 / WAVE_SPS);
+//         low += f * band;
+//         var high = q * (rsample - band) - low;
+//         band += f * high;
+//         switch(this.instr.fx_filter)
+//         {
+//             case 1: // Hipass
+//                 rsample = high;
+//                 break;
+//             case 2: // Lopass
+//                 rsample = low;
+//                 break;
+//             case 3: // Bandpass
+//                 rsample = band;
+//                 break;
+//             case 4: // Notch
+//                 rsample = low + high;
+//                 break;
+//             default:
+//         }
+
+//         // Panning & master volume
+//         t = osc_sin(k * this.panFreq) * this.instr.fx_pan_amt / 512 + 0.5;
+//         rsample *= 39 * this.instr.env_master;
+
+//         // Add to 16-bit channel buffer
+//         k = k * 4;
+//         if (k + 3 < chnBuf.length) {
+//             var x = chnBuf[k] + (chnBuf[k+1] << 8) + rsample * (1 - t);
+//             chnBuf[k] = x & 255;
+//             chnBuf[k+1] = (x >> 8) & 255;
+//             x = chnBuf[k+2] + (chnBuf[k+3] << 8) + rsample * t;
+//             chnBuf[k+2] = x & 255;
+//             chnBuf[k+3] = (x >> 8) & 255;
+//         }
+//     }
+// };
+// sonantx.SoundGenerator.prototype.getAudioGenerator = function(n, callBack) {
+//     var bufferSize = (this.attack + this.sustain + this.release - 1) + (32 * this.rowLen);
+//     var self = this;
+//     genBuffer(bufferSize, function(buffer) {
+//         self.genSound(n, buffer, 0);
+//         applyDelay(buffer, bufferSize, self.instr, self.rowLen, function() {
+//             callBack(new sonantx.AudioGenerator(buffer));
+//         });
+//     });
+// };
+// sonantx.SoundGenerator.prototype.createAudio = function(n, callBack) {
+//     this.getAudioGenerator(n, function(ag) {
+//         callBack(ag.getAudio());
+//     });
+// };
+// sonantx.SoundGenerator.prototype.createAudioBuffer = function(n, callBack) {
+//     this.getAudioGenerator(n, function(ag) {
+//         ag.getAudioBuffer(callBack);
+//     });
+// };
+
+// sonantx.MusicGenerator = function(song) {
+//     this.song = song;
+//     // Wave data configuration
+//     this.waveSize = WAVE_SPS * song.songLen; // Total song size (in samples)
+// };
+// sonantx.MusicGenerator.prototype.generateTrack = function (instr, mixBuf, callBack) {
+//     var self = this;
+//     genBuffer(this.waveSize, function(chnBuf) {
+//         // Preload/precalc some properties/expressions (for improved performance)
+//         var waveSamples = self.waveSize,
+//             waveBytes = self.waveSize * WAVE_CHAN * 2,
+//             rowLen = self.song.rowLen,
+//             endPattern = self.song.endPattern,
+//             soundGen = new sonantx.SoundGenerator(instr, rowLen);
+
+//         var currentpos = 0;
+//         var p = 0;
+//         var row = 0;
+//         var recordSounds = function() {
+//             var beginning = new Date();
+//             while (true) {
+//                 if (row === 32) {
+//                     row = 0;
+//                     p += 1;
+//                     continue;
+//                 }
+//                 if (p === endPattern - 1) {
+//                     setTimeout(delay, 0);
+//                     return;
+//                 }
+//                 var cp = instr.p[p];
+//                 if (cp) {
+//                     var n = instr.c[cp - 1].n[row];
+//                     if (n) {
+//                         soundGen.genSound(n, chnBuf, currentpos);
+//                     }
+//                 }
+//                 currentpos += rowLen;
+//                 row += 1;
+//                 if (new Date() - beginning > MAX_TIME) {
+//                     setTimeout(recordSounds, 0);
+//                     return;
+//                 }
+//             }
+//         };
+
+//         var delay = function() {
+//             applyDelay(chnBuf, waveSamples, instr, rowLen, finalize);
+//         };
+
+//         var b2 = 0;
+//         var finalize = function() {
+//             var beginning = new Date();
+//             var count = 0;
+//             // Add to mix buffer
+//             while(b2 < waveBytes)
+//             {
+//                 var x2 = mixBuf[b2] + (mixBuf[b2+1] << 8) + chnBuf[b2] + (chnBuf[b2+1] << 8) - 32768;
+//                 mixBuf[b2] = x2 & 255;
+//                 mixBuf[b2+1] = (x2 >> 8) & 255;
+//                 b2 += 2;
+//                 count += 1;
+//                 if (count % 1000 === 0 && (new Date() - beginning) > MAX_TIME) {
+//                     setTimeout(finalize, 0);
+//                     return;
+//                 }
+//             }
+//             setTimeout(callBack, 0);
+//         };
+//         setTimeout(recordSounds, 0);
+//     });
+// };
+// sonantx.MusicGenerator.prototype.getAudioGenerator = function(callBack) {
+//     var self = this;
+//     genBuffer(this.waveSize, function(mixBuf) {
+//         var t = 0;
+//         var recu = function() {
+//             if (t < self.song.songData.length) {
+//                 t += 1;
+//                 self.generateTrack(self.song.songData[t - 1], mixBuf, recu);
+//             } else {
+//                 callBack(new sonantx.AudioGenerator(mixBuf));
+//             }
+//         };
+//         recu();
+//     });
+// };
+// sonantx.MusicGenerator.prototype.createAudio = function(callBack) {
+//     this.getAudioGenerator(function(ag) {
+//         callBack(ag.getAudio());
+//     });
+// };
+// sonantx.MusicGenerator.prototype.createAudioBuffer = function(callBack) {
+//     this.getAudioGenerator(function(ag) {
+//         ag.getAudioBuffer(callBack);
+//     });
+// };
+
+// })();
+
+// //------------------------------------------------------------
+// // Song
+// //------------------------------------------------------------
+// var song = {
+//     "rowLen": 2242,
+//     "endPattern": 49,
+//     "songData": [
+//         {
+//             "osc1_oct": 7,
+//             "osc1_det": 0,
+//             "osc1_detune": 0,
+//             "osc1_xenv": 1,
+//             "osc1_vol": 255,
+//             "osc1_waveform": 0,
+//             "osc2_oct": 7,
+//             "osc2_det": 0,
+//             "osc2_detune": 0,
+//             "osc2_xenv": 1,
+//             "osc2_vol": 255,
+//             "osc2_waveform": 0,
+//             "noise_fader": 0,
+//             "env_attack": 50,
+//             "env_sustain": 150,
+//             "env_release": 4800,
+//             "env_master": 200,
+//             "fx_filter": 2,
+//             "fx_freq": 600,
+//             "fx_resonance": 254,
+//             "fx_delay_time": 0,
+//             "fx_delay_amt": 0,
+//             "fx_pan_freq": 0,
+//             "fx_pan_amt": 0,
+//             "lfo_osc1_freq": 0,
+//             "lfo_fx_freq": 0,
+//             "lfo_freq": 0,
+//             "lfo_amt": 0,
+//             "lfo_waveform": 0,
+//             "p": [
+//                 1,
+//                 1,
+//                 1,
+//                 2,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 3,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 3,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 3,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 3,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 3,
+//                 1,
+//                 1,
+//                 1,
+//                 2
+//             ],
+//             "c": [
+//                 {
+//                     "n": [
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 }
+//             ]
+//         },
+//         {
+//             "osc1_oct": 8,
+//             "osc1_det": 0,
+//             "osc1_detune": 0,
+//             "osc1_xenv": 1,
+//             "osc1_vol": 160,
+//             "osc1_waveform": 0,
+//             "osc2_oct": 8,
+//             "osc2_det": 0,
+//             "osc2_detune": 0,
+//             "osc2_xenv": 1,
+//             "osc2_vol": 160,
+//             "osc2_waveform": 0,
+//             "noise_fader": 210,
+//             "env_attack": 50,
+//             "env_sustain": 200,
+//             "env_release": 6800,
+//             "env_master": 160,
+//             "fx_filter": 4,
+//             "fx_freq": 11025,
+//             "fx_resonance": 254,
+//             "fx_delay_time": 6,
+//             "fx_delay_amt": 0,
+//             "fx_pan_freq": 5,
+//             "fx_pan_amt": 61,
+//             "lfo_osc1_freq": 0,
+//             "lfo_fx_freq": 1,
+//             "lfo_freq": 4,
+//             "lfo_amt": 0,
+//             "lfo_waveform": 0,
+//             "p": [
+//                 1,
+//                 1,
+//                 1,
+//                 2,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 2,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 2,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 2,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 2,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1,
+//                 1
+//             ],
+//             "c": [
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         128,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 }
+//             ]
+//         },
+//         {
+//             "osc1_oct": 6,
+//             "osc1_det": 0,
+//             "osc1_detune": 0,
+//             "osc1_xenv": 0,
+//             "osc1_vol": 255,
+//             "osc1_waveform": 1,
+//             "osc2_oct": 7,
+//             "osc2_det": 0,
+//             "osc2_detune": 0,
+//             "osc2_xenv": 0,
+//             "osc2_vol": 154,
+//             "osc2_waveform": 1,
+//             "noise_fader": 0,
+//             "env_attack": 197,
+//             "env_sustain": 88,
+//             "env_release": 10614,
+//             "env_master": 45,
+//             "fx_filter": 2,
+//             "fx_freq": 4425,
+//             "fx_resonance": 163,
+//             "fx_delay_time": 8,
+//             "fx_delay_amt": 119,
+//             "fx_pan_freq": 3,
+//             "fx_pan_amt": 158,
+//             "lfo_osc1_freq": 0,
+//             "lfo_fx_freq": 0,
+//             "lfo_freq": 0,
+//             "lfo_amt": 0,
+//             "lfo_waveform": 0,
+//             "p": [
+//                 2,
+//                 3,
+//                 2,
+//                 3,
+//                 2,
+//                 3,
+//                 2,
+//                 3,
+//                 2,
+//                 3,
+//                 4,
+//                 5,
+//                 2,
+//                 3,
+//                 2,
+//                 3,
+//                 2,
+//                 3,
+//                 4,
+//                 5,
+//                 2,
+//                 3,
+//                 2,
+//                 3,
+//                 2,
+//                 3,
+//                 4,
+//                 5,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 2,
+//                 3,
+//                 2,
+//                 3,
+//                 2,
+//                 3,
+//                 4,
+//                 5,
+//                 2,
+//                 3,
+//                 2,
+//                 2
+//             ],
+//             "c": [
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         133,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         135,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         135,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         143,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         142,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         133,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         133,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         137,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         138,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 }
+//             ]
+//         },
+//         {
+//             "osc1_oct": 7,
+//             "osc1_det": 0,
+//             "osc1_detune": 0,
+//             "osc1_xenv": 1,
+//             "osc1_vol": 144,
+//             "osc1_waveform": 3,
+//             "osc2_oct": 6,
+//             "osc2_det": 0,
+//             "osc2_detune": 9,
+//             "osc2_xenv": 1,
+//             "osc2_vol": 162,
+//             "osc2_waveform": 0,
+//             "noise_fader": 255,
+//             "env_attack": 663,
+//             "env_sustain": 0,
+//             "env_release": 1584,
+//             "env_master": 37,
+//             "fx_filter": 1,
+//             "fx_freq": 6531,
+//             "fx_resonance": 132,
+//             "fx_delay_time": 12,
+//             "fx_delay_amt": 9,
+//             "fx_pan_freq": 0,
+//             "fx_pan_amt": 0,
+//             "lfo_osc1_freq": 0,
+//             "lfo_fx_freq": 0,
+//             "lfo_freq": 5,
+//             "lfo_amt": 0,
+//             "lfo_waveform": 0,
+//             "p": [
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 3,
+//                 3,
+//                 3,
+//                 3,
+//                 3,
+//                 3,
+//                 3,
+//                 3,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 4,
+//                 0,
+//                 0
+//             ],
+//             "c": [
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         140,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         145,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         147,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         152,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         152,
+//                         0,
+//                         0,
+//                         0,
+//                         152,
+//                         0,
+//                         0,
+//                         0,
+//                         152,
+//                         0,
+//                         0,
+//                         0,
+//                         152,
+//                         0,
+//                         0,
+//                         0,
+//                         152,
+//                         0,
+//                         0,
+//                         0,
+//                         152,
+//                         0,
+//                         0,
+//                         0,
+//                         152,
+//                         0,
+//                         0,
+//                         0,
+//                         152,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         152,
+//                         0,
+//                         152,
+//                         0,
+//                         152,
+//                         0,
+//                         0,
+//                         0,
+//                         152,
+//                         0,
+//                         152,
+//                         0,
+//                         152,
+//                         0,
+//                         0,
+//                         0,
+//                         152,
+//                         0,
+//                         152,
+//                         0,
+//                         152,
+//                         0,
+//                         0,
+//                         0,
+//                         152,
+//                         0,
+//                         152,
+//                         0,
+//                         152,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 }
+//             ]
+//         },
+//         {
+//             "osc1_oct": 7,
+//             "osc1_det": 0,
+//             "osc1_detune": 0,
+//             "osc1_xenv": 0,
+//             "osc1_vol": 63,
+//             "osc1_waveform": 2,
+//             "osc2_oct": 7,
+//             "osc2_det": 0,
+//             "osc2_detune": 0,
+//             "osc2_xenv": 0,
+//             "osc2_vol": 125,
+//             "osc2_waveform": 0,
+//             "noise_fader": 0,
+//             "env_attack": 444,
+//             "env_sustain": 3706,
+//             "env_release": 10614,
+//             "env_master": 124,
+//             "fx_filter": 0,
+//             "fx_freq": 2727,
+//             "fx_resonance": 199,
+//             "fx_delay_time": 0,
+//             "fx_delay_amt": 125,
+//             "fx_pan_freq": 3,
+//             "fx_pan_amt": 47,
+//             "lfo_osc1_freq": 1,
+//             "lfo_fx_freq": 0,
+//             "lfo_freq": 14,
+//             "lfo_amt": 0,
+//             "lfo_waveform": 1,
+//             "p": [
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 3,
+//                 4,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 3,
+//                 4,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 3,
+//                 4,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 3,
+//                 4,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 3,
+//                 4
+//             ],
+//             "c": [
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         159,
+//                         0,
+//                         0,
+//                         0,
+//                         157,
+//                         0,
+//                         157,
+//                         0,
+//                         0,
+//                         0,
+//                         157,
+//                         0,
+//                         0,
+//                         0,
+//                         152,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         123,
+//                         0,
+//                         0,
+//                         0,
+//                         126,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         130,
+//                         0,
+//                         0,
+//                         0,
+//                         131,
+//                         0,
+//                         0,
+//                         0,
+//                         130,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         130,
+//                         0,
+//                         0,
+//                         0,
+//                         131,
+//                         0,
+//                         0,
+//                         0,
+//                         128,
+//                         0,
+//                         0,
+//                         0,
+//                         126,
+//                         0,
+//                         0,
+//                         0,
+//                         125,
+//                         0,
+//                         0,
+//                         0,
+//                         123,
+//                         0,
+//                         0,
+//                         0,
+//                         121,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         123,
+//                         0,
+//                         0,
+//                         0,
+//                         121,
+//                         0,
+//                         0,
+//                         0,
+//                         123,
+//                         0,
+//                         0,
+//                         0,
+//                         125,
+//                         0,
+//                         0,
+//                         0,
+//                         126,
+//                         0,
+//                         0,
+//                         0,
+//                         125,
+//                         0,
+//                         0,
+//                         0,
+//                         121,
+//                         0,
+//                         0,
+//                         0,
+//                         123,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 }
+//             ]
+//         },
+//         {
+//             "osc1_oct": 9,
+//             "osc1_det": 0,
+//             "osc1_detune": 0,
+//             "osc1_xenv": 1,
+//             "osc1_vol": 64,
+//             "osc1_waveform": 1,
+//             "osc2_oct": 5,
+//             "osc2_det": 0,
+//             "osc2_detune": 0,
+//             "osc2_xenv": 0,
+//             "osc2_vol": 128,
+//             "osc2_waveform": 3,
+//             "noise_fader": 0,
+//             "env_attack": 1776,
+//             "env_sustain": 7105,
+//             "env_release": 19736,
+//             "env_master": 119,
+//             "fx_filter": 1,
+//             "fx_freq": 1523,
+//             "fx_resonance": 128,
+//             "fx_delay_time": 10,
+//             "fx_delay_amt": 39,
+//             "fx_pan_freq": 3,
+//             "fx_pan_amt": 92,
+//             "lfo_osc1_freq": 0,
+//             "lfo_fx_freq": 1,
+//             "lfo_freq": 2,
+//             "lfo_amt": 0,
+//             "lfo_waveform": 3,
+//             "p": [
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 2,
+//                 2,
+//                 2,
+//                 3,
+//                 2,
+//                 2,
+//                 2,
+//                 7,
+//                 2,
+//                 2,
+//                 2,
+//                 3,
+//                 2,
+//                 2,
+//                 2,
+//                 7,
+//                 8,
+//                 8,
+//                 8,
+//                 8,
+//                 8,
+//                 8,
+//                 9,
+//                 10,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 3,
+//                 7
+//             ],
+//             "c": [
+//                 {
+//                     "n": [
+//                         140,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         147,
+//                         0,
+//                         0,
+//                         0,
+//                         145,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         133,
+//                         0,
+//                         0,
+//                         0,
+//                         135,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         130,
+//                         0,
+//                         0,
+//                         0,
+//                         133,
+//                         0,
+//                         0,
+//                         0,
+//                         135,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         145,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         145,
+//                         0,
+//                         0,
+//                         0,
+//                         147,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         135,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         145,
+//                         0,
+//                         0,
+//                         0,
+//                         147,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         137,
+//                         0,
+//                         0,
+//                         0,
+//                         138,
+//                         0,
+//                         0,
+//                         0,
+//                         137,
+//                         0,
+//                         0,
+//                         0,
+//                         133,
+//                         0,
+//                         0,
+//                         0,
+//                         135,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         135,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         145,
+//                         0,
+//                         0,
+//                         0,
+//                         147,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         137,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         142,
+//                         0,
+//                         0,
+//                         0,
+//                         145,
+//                         0,
+//                         0,
+//                         0,
+//                         147,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         140,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         152,
+//                         0,
+//                         0,
+//                         0,
+//                         149,
+//                         0,
+//                         0,
+//                         0,
+//                         150,
+//                         0,
+//                         0,
+//                         0,
+//                         149,
+//                         0,
+//                         0,
+//                         0,
+//                         145,
+//                         0,
+//                         0,
+//                         0,
+//                         147,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 }
+//             ]
+//         },
+//         {
+//             "osc1_oct": 7,
+//             "osc1_det": 0,
+//             "osc1_detune": 0,
+//             "osc1_xenv": 1,
+//             "osc1_vol": 123,
+//             "osc1_waveform": 1,
+//             "osc2_oct": 8,
+//             "osc2_det": 0,
+//             "osc2_detune": 25,
+//             "osc2_xenv": 1,
+//             "osc2_vol": 166,
+//             "osc2_waveform": 0,
+//             "noise_fader": 0,
+//             "env_attack": 37768,
+//             "env_sustain": 19084,
+//             "env_release": 24610,
+//             "env_master": 43,
+//             "fx_filter": 4,
+//             "fx_freq": 4798,
+//             "fx_resonance": 167,
+//             "fx_delay_time": 8,
+//             "fx_delay_amt": 93,
+//             "fx_pan_freq": 6,
+//             "fx_pan_amt": 61,
+//             "lfo_osc1_freq": 0,
+//             "lfo_fx_freq": 1,
+//             "lfo_freq": 3,
+//             "lfo_amt": 67,
+//             "lfo_waveform": 0,
+//             "p": [
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 3,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 3,
+//                 5,
+//                 5,
+//                 5,
+//                 5,
+//                 5,
+//                 5,
+//                 5,
+//                 6,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 2,
+//                 3
+//             ],
+//             "c": [
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         135,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         137,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         147,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 },
+//                 {
+//                     "n": [
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         149,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0,
+//                         0
+//                     ]
+//                 }
+//             ]
+//         }
+//     ],
+//     "songLen": 80
+// };
 //------------------------------------------------------------
 // Time functions
 //------------------------------------------------------------
@@ -1447,4 +3975,18 @@ function setBestTime() {
 function isBetterTime(time) {
   return time > parseInt(bestTime.replace(':', '.'));
 }
+async function main() {
+  setFontMeasurement();
+
+  // var songGen = new sonantx.MusicGenerator(song);
+  // songGen.createAudio(function(audio) {
+  //   audio.play();
+  // });
+
+  // music from https://opengameart.org/content/adventure-theme
+  await generateWaveData('./' + songName);
+  getBestTime();
+  menuScene.show(() => startBtn.focus());
+}
+
 main();

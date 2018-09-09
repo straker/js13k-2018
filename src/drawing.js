@@ -31,7 +31,7 @@ function neonRect(x, y, w, h, r, g, b) {
   ctx.lineWidth = 1.5;
   ctx.strokeRect(x, y, w, h);
   ctx.restore();
-};
+}
 
 /**
  * Line to each point.
@@ -77,6 +77,34 @@ function neonLine(points, move, r, g, b) {
   ctx.lineWidth = 1.5;
   drawLines(points, move);
 
+  ctx.restore();
+}
+
+/**
+ * Draw neon text in the given color
+ * @param {string} text - Text to render
+ * @param {number} x - X position of the text
+ * @param {number} y - Y position of the text
+ * @param {number} r - Red value
+ * @param {number} g - Green value
+ * @param {number} b - Blue value
+ */
+function neonText(text, x, y, r, g, b, alhpa) {
+  ctx.save();
+  ctx.globalAlpha = 0.2;
+  ctx.strokeStyle = "rgb(" + r + "," + g + "," + b + ")";
+  ctx.lineWidth = 10.5;
+  ctx.strokeText(text, x, y);
+  ctx.lineWidth = 8;
+  ctx.strokeText(text, x, y);
+  ctx.lineWidth = 5.5;
+  ctx.strokeText(text, x, y);
+  ctx.lineWidth = 3;
+  ctx.strokeText(text, x, y);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 1.5;
+  ctx.strokeText(text, x, y);
   ctx.restore();
 };
 

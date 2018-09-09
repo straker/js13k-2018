@@ -84,7 +84,42 @@ function Scene(name) {
 // Menu Scene
 //------------------------------------------------------------
 let menuScene = Scene('menu');
-let startBtn = button({
+let nameText = Text({
+  text() {
+    ctx.save();
+
+    let points = [
+      {x: 50, y: 277},
+
+      {x: 80, y: 277},
+      {x: 88, y: 285},
+      {x: 96, y: 293},
+
+      {x: 104, y: 296},
+      {x: 112, y: 294},
+      {x: 120, y: 287},
+      {x: 128, y: 279},
+
+      {x: 136, y: 271},
+      {x: 144, y: 264},
+      {x: 152, y: 262},
+      {x: 160, y: 265},
+
+      {x: 168, y: 273},
+      {x: 176, y: 281},
+      {x: 206, y: 281}
+    ];
+
+    neonLine(points, 0, 0, 163, 220);
+    ctx.font = "150px 'Lucida Console', Monaco, monospace"
+    neonText('AUDIO', 50, 200, 0, 163, 220);
+    neonText('DASH', 231, 315, 255, 0, 0);
+    ctx.restore();
+
+    return '';
+  }
+})
+let startBtn = Button({
   x: kontra.canvas.width / 2,
   y: kontra.canvas.height / 2,
   text: 'START',
@@ -96,15 +131,17 @@ let startBtn = button({
     });
   }
 });
-let uploadBtn = button({
+let uploadBtn = Button({
   x: kontra.canvas.width / 2,
   prev: startBtn,
   text: 'UPLOAD',
   onDown() {
     uploadFile.click();
+    menuScene.hide();
+    uploadScene.show();
   }
 });
-let optionsBtn = button({
+let optionsBtn = Button({
   x: kontra.canvas.width / 2,
   prev: uploadBtn,
   text: 'OPTIONS',
@@ -114,7 +151,40 @@ let optionsBtn = button({
     });
   }
 });
-menuScene.add(startBtn, uploadBtn, optionsBtn);
+menuScene.add(nameText, startBtn, uploadBtn, optionsBtn);
+
+
+
+
+
+//------------------------------------------------------------
+// Upload Scene
+//------------------------------------------------------------
+let uploadScene = Scene('upload');
+let loadingTimer = 0;
+let uploadText = Text({
+  x: 245,
+  y: kontra.canvas.height / 2,
+  text() {
+    ++loadingTimer;
+    let text = 'LOADING';
+    if (loadingTimer >= 60) {
+      text += '.'
+    }
+    if (loadingTimer >= 120) {
+      text += '.'
+    }
+    if (loadingTimer >= 180) {
+      text += '.'
+    }
+    if (loadingTimer >= 240) {
+      loadingTimer = 0;
+    }
+
+    return text;
+  }
+});
+uploadScene.add(uploadText);
 
 
 
@@ -171,7 +241,7 @@ opts.forEach((opt, index) => {
     }
   });
 
-  let decBtn = button({
+  let decBtn = Button({
     x: 375,
     y: index === 0 ? startY : null,
     prev: index > 0 ? optionTexts[index-1] : null,
@@ -188,7 +258,7 @@ opts.forEach((opt, index) => {
     focusEl = decBtn;
   }
 
-  let incBtn = button({
+  let incBtn = Button({
     x: 575,
     y: index === 0 ? startY : null,
     prev: index > 0 ? optionTexts[index-1] : null,
@@ -212,18 +282,20 @@ opts.forEach((opt, index) => {
   optionTexts.push(optionText);
 });
 
-let saveBtn = button({
+let saveBtn = Button({
   x: kontra.canvas.width / 2,
   prev: optionTexts[optionTexts.length-1],
   margin: 45,
   text: 'SAVE',
   onDown() {
+    localStorage.setItem('js13k-2018:options', JSON.stringify(options));
+
     optionsScene.hide(() => {
-      menuScene.show(() => optionsBtn.domEl.focus());
+      menuScene.show(() => startBtn.domEl.focus());
     });
   }
 });
-let cancelBtn = button({
+let cancelBtn = Button({
   x: kontra.canvas.width / 2,
   prev: saveBtn,
   text: 'CANCEL',
@@ -231,7 +303,7 @@ let cancelBtn = button({
     optionsScene.hide(() => {
       options = beforeOptions;
       setFontMeasurement();
-      menuScene.show(() => optionsBtn.domEl.focus());
+      menuScene.show(() => startBtn.domEl.focus());
     });
   }
 });
@@ -310,44 +382,45 @@ gameScene.add({
       let wave = waveData[i];
       let x = wave.x - move;
 
+      let topY = wave.y;
+      let botY = kontra.canvas.height - wave.height - wave.offset + wave.yOffset;
+      let topHeight = wave.height - wave.offset + wave.yOffset;
+      let botHeight = wave.height + wave.offset - wave.yOffset;
+
       // keep track of the amp bar
       if (x > waveWidth * (maxLength / 2 - 1) && x < waveWidth * (maxLength / 2 + 1)) {
         ampBar = wave;
         ampBarIndex = i;
+
+        // collision detection
+        if (!gameOverScene.active) {
+          if ((ship.y < topY + topHeight &&
+               ship.y + ship.height > topY) ||
+              (ship.y < botY + botHeight &&
+               ship.y + ship.height > botY) ||
+              (ship.y < -50 || ship.y > kontra.canvas.height + 50)) {
+            return gameOver();
+          }
+        }
       }
       else {
         ctx.fillStyle = '#00a3dc';
-        ctx.fillRect(x, wave.y, wave.width, wave.height - wave.offset);  // top bar
-        ctx.fillRect(x, kontra.canvas.height - wave.height - wave.offset, wave.width, wave.height + wave.offset);  // bottom bar
+        ctx.fillRect(x, topY, wave.width, topHeight);  // top bar
+        ctx.fillRect(x, botY, wave.width, botHeight);  // bottom bar
       }
     }
 
     // draw amp bar
     if (ampBar) {
-      neonRect((ampBar.x - move) - waveWidth, ampBar.y, ampBar.width + waveWidth * 2, ampBar.height - ampBar.offset, 255, 0, 0);
-      neonRect((ampBar.x - move) - waveWidth, kontra.canvas.height - ampBar.y, ampBar.width + waveWidth * 2, -ampBar.height - ampBar.offset, 255, 0, 0);
+      let x = ampBar.x - move - waveWidth;
+      let width = ampBar.width + waveWidth * 2;
+      let topY = ampBar.y;
+      let botY = kontra.canvas.height - ampBar.height - ampBar.offset + ampBar.yOffset;
+      let topHeight = ampBar.height - ampBar.offset + ampBar.yOffset;
+      let botHeight = ampBar.height + ampBar.offset - ampBar.yOffset;
 
-      // collision detection
-      if (!gameOverScene.active) {
-        for (let i = ampBarIndex - 3; i < ampBarIndex + 3 && waveData[i]; i++) {
-          let wave = waveData[i];
-
-          if (ship.x < wave.x - move + wave.width &&
-              ship.x + ship.width > wave.x - move) {
-            let botY = kontra.canvas.height - wave.height - wave.offset;
-
-            if ((ship.y < wave.y + wave.height - wave.offset &&
-                 ship.y + ship.height > wave.y) ||
-                (ship.y < botY + wave.height + wave.offset &&
-                 ship.y + ship.height > botY)) {
-              return gameOver();
-            }
-          }
-        }
-        if (ship.y < -50 || ship.y > kontra.canvas.height + 50) {
-          return gameOver();
-        }
-      }
+      neonRect(x, topY, width, topHeight, 255, 0, 0);
+      neonRect(x, botY, width, botHeight, 255, 0, 0);
     }
 
     ship.render(move);
@@ -358,7 +431,7 @@ gameScene.add({
 
     drawTimeUi();
 
-    if (waveData[waveData.length - 1].x - move <= kontra.canvas.width / 2) {
+    if (!winScene.active && waveData[waveData.length - 1].x - move <= kontra.canvas.width / 2) {
       win();
     }
   }
@@ -378,7 +451,7 @@ let gameOverText = Text({
   center: true,
   text: 'GAME OVER'
 });
-let restartBtn = button({
+let restartBtn = Button({
   x: kontra.canvas.width / 2,
   prev: gameOverText,
   text: 'RESTART',
@@ -388,5 +461,42 @@ let restartBtn = button({
     gameScene.hide(() => start());
   }
 });
+let menuBtn = Button({
+  x: kontra.canvas.width / 2,
+  prev: restartBtn,
+  text: 'MAIN MENU',
+  onDown() {
+    gameScene.hide();
+    gameOverScene.hide(() => {
+      menuScene.show(() => startBtn.domEl.focus());
+    });
+  }
+});
+gameOverScene.add(gameOverText, restartBtn, menuBtn);
 
-gameOverScene.add(gameOverText, restartBtn);
+
+
+
+
+//------------------------------------------------------------
+// Win Scene
+//------------------------------------------------------------
+let winScene = Scene('win');
+let winText = Text({
+  x: kontra.canvas.width / 2,
+  y: kontra.canvas.height / 2,
+  center: true,
+  text: 'SONG COMPLETED!'
+});
+let winMenuBtn = Button({
+  x: kontra.canvas.width / 2,
+  prev: winText,
+  text: 'MAIN MENU',
+  onDown() {
+    gameScene.hide();
+    winScene.hide(() => {
+      menuScene.show(() => startBtn.domEl.focus());
+    });
+  }
+})
+winScene.add(winText, winMenuBtn);

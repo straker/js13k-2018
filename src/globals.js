@@ -42,8 +42,20 @@ let fadeTime = 450;  // how long a scene takes to fade
 //------------------------------------------------------------
 // Helper functions
 //------------------------------------------------------------
+
+/**
+ * Clamp a value between min and max values.
+ * @param {number} value - Value to clamp.
+ * @param {number} min - Min value.
+ * @param {number} max - Max value.
+ */
 function clamp(value, min, max) {
   return Math.min( Math.max(min, value), max);
+}
+
+
+function getRandom(min, max) {
+  return Math.random() * (max - min) + min;
 }
 
 
@@ -53,31 +65,6 @@ function clamp(value, min, max) {
 //------------------------------------------------------------
 // Main functions
 //------------------------------------------------------------
-uploadFile.addEventListener('change', uploadAudio);
-
-/**
- * Upload an audio file from the users computer.
- * @param {Event} e - File change event
- */
-async function uploadAudio(e) {
-  // show(loader);
-  // hide(introText, winText, startBtn, customUpload, restartBtn);
-
-  // clear any previous uploaded song
-  URL.revokeObjectURL(objectUrl);
-
-  let file = e.currentTarget.files[0];
-  objectUrl = URL.createObjectURL(file);
-
-  await generateWaveData(objectUrl);
-  songName = uploadFile.value.replace(/^.*fakepath/, '').substr(1);
-  // songTitle.textContent = 'Playing: ' + songName;
-  console.log('done uploading');
-  getBestTime();
-
-  // hide(loader);
-  // show(songTitle, startBtn);
-}
 
 /**
  * Start the game.
@@ -111,20 +98,17 @@ function start() {
 function gameOver() {
   audio.pause();
   setBestTime();
-
-  // give player enough time to recover from controlling the ship before they can
-  // click the restart button with the spacebar
   gameOverScene.show(() => restartBtn.focus());
 }
 
 // /**
 //  * Show win screen.
 //  */
-// function win() {
-//   loop.stop();
-//   setBestTime();
-//   show(winText, customUpload);
-// }
+function win() {
+  audio.pause();
+  setBestTime();
+  winScene.show(() => winMenuBtn.focus());
+}
 
 // /**
 //  * Show intro screen.
@@ -139,12 +123,3 @@ function gameOver() {
 // function loading() {
 
 // }
-
-async function main() {
-  setFontMeasurement();
-
-  // music from https://opengameart.org/content/adventure-theme
-  await generateWaveData('./' + songName);
-  getBestTime();
-  menuScene.show(() => startBtn.focus());
-}
