@@ -47,6 +47,10 @@ loop = kontra.gameLoop({
     if (tutorialScene.active) {
       tutorialMove += tutorialMoveInc;
       ship.render(tutorialMove);
+
+      if (ship.points.length > maxLength / 2) {
+        ship.points.shift();
+      }
     }
   }
 });

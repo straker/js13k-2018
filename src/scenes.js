@@ -21,6 +21,8 @@ function Scene(name) {
 
     // create a fade in/out transitions when hiding and showing scenes
     hide(cb) {
+      if (focusedBtn) focusedBtn.blur();
+
       this.isHidding = true;
       sceneEl.hidden = true;
       this.alpha = 1;
@@ -84,30 +86,30 @@ function Scene(name) {
 // Menu Scene
 //------------------------------------------------------------
 let menuScene = Scene('menu');
-let nameText = Text({
-  text() {
+menuScene.add({
+  render() {
     ctx.save();
 
     let points = [
-      {x: 50, y: 277},
+      {x: 50, y: 262},
 
-      {x: 80, y: 277},
-      {x: 88, y: 285},
-      {x: 96, y: 293},
+      {x: 80, y: 262},
+      {x: 88, y: 270},
+      {x: 96, y: 278},
 
-      {x: 104, y: 296},
-      {x: 112, y: 294},
-      {x: 120, y: 287},
-      {x: 128, y: 279},
+      {x: 104, y: 281},
+      {x: 112, y: 279},
+      {x: 120, y: 272},
+      {x: 128, y: 264},
 
-      {x: 136, y: 271},
-      {x: 144, y: 264},
-      {x: 152, y: 262},
-      {x: 160, y: 265},
+      {x: 136, y: 256},
+      {x: 144, y: 249},
+      {x: 152, y: 247},
+      {x: 160, y: 250},
 
-      {x: 168, y: 273},
-      {x: 176, y: 281},
-      {x: 206, y: 281}
+      {x: 168, y: 258},
+      {x: 176, y: 266},
+      {x: 206, y: 266}
     ];
 
     neonLine(points, 0, 0, 163, 220);
@@ -118,7 +120,7 @@ let nameText = Text({
 
     return '';
   }
-})
+});
 let startBtn = Button({
   x: kontra.canvas.width / 2,
   y: kontra.canvas.height / 2,
@@ -151,7 +153,7 @@ let optionsBtn = Button({
     });
   }
 });
-menuScene.add(nameText, startBtn, uploadBtn, optionsBtn);
+menuScene.add(startBtn, uploadBtn, optionsBtn);
 
 
 
@@ -359,7 +361,7 @@ gameScene.add({
     // @see https://stackoverflow.com/questions/33006650/web-audio-api-and-real-current-time-when-playing-an-audio-file
 
     // calculate speed of the audio wave based on the current time
-    let move, startIndex = 0, ampBar, ampBarIndex;
+    let move, startIndex = 0, ampBar;
     if (audio.currentTime) {
       move = Math.round((audio.currentTime / audio.duration) * (peaks.length * waveWidth));
       startIndex = move / waveWidth | 0;
@@ -390,14 +392,13 @@ gameScene.add({
       // keep track of the amp bar
       if (x > waveWidth * (maxLength / 2 - 1) && x < waveWidth * (maxLength / 2 + 1)) {
         ampBar = wave;
-        ampBarIndex = i;
 
         // collision detection
         if (!gameOverScene.active) {
-          if ((ship.y < topY + topHeight &&
-               ship.y + ship.height > topY) ||
-              (ship.y < botY + botHeight &&
-               ship.y + ship.height > botY) ||
+          if (collidesWithShip(topY, topHeight) ||
+              collidesWithShip(botY, botHeight) ||
+              (wave.obstacle &&
+               collidesWithShip(wave.obstacle.y - wave.offset, wave.obstacle.height)) ||
               (ship.y < -50 || ship.y > kontra.canvas.height + 50)) {
             return gameOver();
           }
@@ -407,6 +408,11 @@ gameScene.add({
         ctx.fillStyle = '#00a3dc';
         ctx.fillRect(x, topY, wave.width, topHeight);  // top bar
         ctx.fillRect(x, botY, wave.width, botHeight);  // bottom bar
+      }
+
+      let obstacle;
+      if (obstacle = wave.obstacle) {
+        ctx.fillRect(x, obstacle.y - wave.offset, obstacle.width, obstacle.height);
       }
     }
 
@@ -421,6 +427,11 @@ gameScene.add({
 
       neonRect(x, topY, width, topHeight, 255, 0, 0);
       neonRect(x, botY, width, botHeight, 255, 0, 0);
+
+      let obstacle;
+      if (obstacle = ampBar.obstacle) {
+        neonRect(x, obstacle.y - ampBar.offset, obstacle.width, obstacle.height, 255, 0, 0);
+      }
     }
 
     ship.render(move);

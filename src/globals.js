@@ -53,9 +53,12 @@ function clamp(value, min, max) {
   return Math.min( Math.max(min, value), max);
 }
 
-
 function getRandom(min, max) {
   return Math.random() * (max - min) + min;
+}
+
+function collidesWithShip(y, height) {
+  return ship.y < y + height && ship.y + ship.height > y;
 }
 
 
@@ -70,56 +73,35 @@ function getRandom(min, max) {
  * Start the game.
  */
 function start() {
-
-  // safari still retains focus on buttons even after they are hidden and
-  // pressing space activates the hidden button. need to manually remove focus
-  // from the buttons to prevent this
-  // startBtn.blur();
-  // restartBtn.blur();
-  focusedBtn && focusedBtn.blur();
-
   startMove = -kontra.canvas.width / 2 | 0;
   startCount = 0;
+
   audio.currentTime = 0;
   audio.volume = options.music;
   audio.playbackRate = options.gameSpeed;
+
   ship.points = [];
   ship.y = mid;
-  // Array.from(document.querySelectorAll('.ui > *')).forEach(el => hide(el));
 
   showTutorialBars = true;
   isTutorial = true;
   tutorialScene.show();
 }
 
-// /**
-//  * Show game over screen.
-//  */
+/**
+ * Show game over scene.
+ */
 function gameOver() {
   audio.pause();
   setBestTime();
   gameOverScene.show(() => restartBtn.focus());
 }
 
-// /**
-//  * Show win screen.
-//  */
+/**
+ * Show win scene.
+ */
 function win() {
   audio.pause();
   setBestTime();
   winScene.show(() => winMenuBtn.focus());
 }
-
-// /**
-//  * Show intro screen.
-//  */
-// function intro() {
-//   // buttonLoop.start();
-//   startBtn.show();
-//   uploadBtn.show();
-//   optionBtn.show();
-// }
-
-// function loading() {
-
-// }

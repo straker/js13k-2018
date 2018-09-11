@@ -167,9 +167,12 @@ function clamp(value, min, max) {
   return Math.min( Math.max(min, value), max);
 }
 
-
 function getRandom(min, max) {
   return Math.random() * (max - min) + min;
+}
+
+function collidesWithShip(y, height) {
+  return ship.y < y + height && ship.y + ship.height > y;
 }
 
 
@@ -184,59 +187,38 @@ function getRandom(min, max) {
  * Start the game.
  */
 function start() {
-
-  // safari still retains focus on buttons even after they are hidden and
-  // pressing space activates the hidden button. need to manually remove focus
-  // from the buttons to prevent this
-  // startBtn.blur();
-  // restartBtn.blur();
-  focusedBtn && focusedBtn.blur();
-
   startMove = -kontra.canvas.width / 2 | 0;
   startCount = 0;
+
   audio.currentTime = 0;
   audio.volume = options.music;
   audio.playbackRate = options.gameSpeed;
+
   ship.points = [];
   ship.y = mid;
-  // Array.from(document.querySelectorAll('.ui > *')).forEach(el => hide(el));
 
   showTutorialBars = true;
   isTutorial = true;
   tutorialScene.show();
 }
 
-// /**
-//  * Show game over screen.
-//  */
+/**
+ * Show game over scene.
+ */
 function gameOver() {
   audio.pause();
   setBestTime();
   gameOverScene.show(() => restartBtn.focus());
 }
 
-// /**
-//  * Show win screen.
-//  */
+/**
+ * Show win scene.
+ */
 function win() {
   audio.pause();
   setBestTime();
   winScene.show(() => winMenuBtn.focus());
 }
-
-// /**
-//  * Show intro screen.
-//  */
-// function intro() {
-//   // buttonLoop.start();
-//   startBtn.show();
-//   uploadBtn.show();
-//   optionBtn.show();
-// }
-
-// function loading() {
-
-// }
 //------------------------------------------------------------
 // Button
 //------------------------------------------------------------
@@ -438,8 +420,6 @@ function loadAudio(url) {
  * @param {Event} e - File change event
  */
 async function uploadAudio(e) {
-  // show(loader);
-  // hide(introText, winText, startBtn, customUpload, restartBtn);
 
   // clear any previous uploaded song
   URL.revokeObjectURL(objectUrl);
@@ -449,13 +429,9 @@ async function uploadAudio(e) {
 
   await generateWaveData(objectUrl);
   songName = uploadFile.value.replace(/^.*fakepath/, '').substr(1);
-  // songTitle.textContent = 'Playing: ' + songName;
   getBestTime();
   uploadScene.hide();
   startBtn.onDown();
-
-  // hide(loader);
-  // show(songTitle, startBtn);
 }
 
 /**
@@ -477,39 +453,21 @@ async function generateWaveData(url) {
   let waves = peaks
     .map((peak, index) => peak >= 0 ? peak : peaks[index-1]);
 
-  // let averagePeaks = [0,0,0,0,0,0,0,0,0,0,0];
-  // waves.forEach(peak => {
-  //   averagePeaks[peak * 10 | 0]++;
-  // });
-
-  // console.log(averagePeaks);
-
   let pos = mid;  // position of next turn
   let lastPos = 0;  // position of the last turn
   let gapDistance = maxLength;  // how long to get to the next turn
   let step = 0;  // increment of each peak to pos
   let offset = 0;  // offset the wave data position to create curves
   let minBarDistance = 270;  // min distance between top and bottom wave bars
-
   let heightDt = minBarDistance - waveHeight + 10;  // distance between max height and wave height
   let heightStep = heightDt / (startBuffer.length + waves.length);  // game should reach the max bar height by end of the song
-
   let counter = 0;
-  let yOffset = 0;  // offset the center of the two waves
-  let lastYIndex = 0;  // last offset index
-  let lastOffsetValue = 0;
-
-  let lastYPos = 0;
-  let yStep = 0;
-  let yCounter = 0;
-  let yGapDistance = maxLength;
-  let yPos = 0;
 
   waveData = startBuffer
     .concat(waves)
     .map((peak, index) => {
+      let height = 160 + peak * waveHeight + heightStep * index;
       offset += step;
-      yOffset += yStep;
 
       if (++counter >= gapDistance) {
         counter = 0;
@@ -519,22 +477,18 @@ async function generateWaveData(url) {
         step = (pos - lastPos) / gapDistance;
       }
 
-      // if (++yCounter >= yGapDistance) {
-      //   yCounter = 0;
-      //   lastYPos = yPos;
-      //   yPos = 0 + (Math.random() * 360 - 180);
-      //   yGapDistance = 250 + (Math.random() * 200 - 100);  // generate random number between 100 and 300
-      //   yStep = (yPos - lastYPos) / yGapDistance;
-      // }
-
-      let height = 160 + peak * waveHeight + heightStep * index;
-      // if (peak > 0.50) {
-      //   height = kontra.canvas.height / 2 - 75;
-      // }
-
-      // if (index - lastYIndex > 25) {
-      //   lastYIndex = index;
-      // }
+      // obstacle height is inverse to peak height - the bigger the peak the smaller
+      // the obstacle since there is less room to maneuver. height is also based on
+      // time in song as the tunnel gets smaller so the obstacle should as well
+      let obstacle;
+      if (peak > 0.7) {
+        obstacle = {
+          x: index * waveWidth,
+          y: kontra.canvas.height / 2 - 50,
+          width: waveWidth,
+          height: 400 * (1 - peak) - heightStep * index
+        };
+      }
 
       return {
         x: index * waveWidth,
@@ -543,9 +497,8 @@ async function generateWaveData(url) {
         height: height,
         offset: offset,
         yOffset: 0,
-        // offset: 0,
-        // yOffset: lastYIndex == index && peak > 0.50 /*&& Math.abs(step) < 0.7*/ ? yOffset : 0
-      }
+        obstacle: obstacle
+      };
     });
 
   return Promise.resolve();
@@ -1016,6 +969,10 @@ loop = kontra.gameLoop({
     if (tutorialScene.active) {
       tutorialMove += tutorialMoveInc;
       ship.render(tutorialMove);
+
+      if (ship.points.length > maxLength / 2) {
+        ship.points.shift();
+      }
     }
   }
 });
@@ -1044,6 +1001,8 @@ function Scene(name) {
 
     // create a fade in/out transitions when hiding and showing scenes
     hide(cb) {
+      if (focusedBtn) focusedBtn.blur();
+
       this.isHidding = true;
       sceneEl.hidden = true;
       this.alpha = 1;
@@ -1107,30 +1066,30 @@ function Scene(name) {
 // Menu Scene
 //------------------------------------------------------------
 let menuScene = Scene('menu');
-let nameText = Text({
-  text() {
+menuScene.add({
+  render() {
     ctx.save();
 
     let points = [
-      {x: 50, y: 277},
+      {x: 50, y: 262},
 
-      {x: 80, y: 277},
-      {x: 88, y: 285},
-      {x: 96, y: 293},
+      {x: 80, y: 262},
+      {x: 88, y: 270},
+      {x: 96, y: 278},
 
-      {x: 104, y: 296},
-      {x: 112, y: 294},
-      {x: 120, y: 287},
-      {x: 128, y: 279},
+      {x: 104, y: 281},
+      {x: 112, y: 279},
+      {x: 120, y: 272},
+      {x: 128, y: 264},
 
-      {x: 136, y: 271},
-      {x: 144, y: 264},
-      {x: 152, y: 262},
-      {x: 160, y: 265},
+      {x: 136, y: 256},
+      {x: 144, y: 249},
+      {x: 152, y: 247},
+      {x: 160, y: 250},
 
-      {x: 168, y: 273},
-      {x: 176, y: 281},
-      {x: 206, y: 281}
+      {x: 168, y: 258},
+      {x: 176, y: 266},
+      {x: 206, y: 266}
     ];
 
     neonLine(points, 0, 0, 163, 220);
@@ -1141,7 +1100,7 @@ let nameText = Text({
 
     return '';
   }
-})
+});
 let startBtn = Button({
   x: kontra.canvas.width / 2,
   y: kontra.canvas.height / 2,
@@ -1174,7 +1133,7 @@ let optionsBtn = Button({
     });
   }
 });
-menuScene.add(nameText, startBtn, uploadBtn, optionsBtn);
+menuScene.add(startBtn, uploadBtn, optionsBtn);
 
 
 
@@ -1382,7 +1341,7 @@ gameScene.add({
     // @see https://stackoverflow.com/questions/33006650/web-audio-api-and-real-current-time-when-playing-an-audio-file
 
     // calculate speed of the audio wave based on the current time
-    let move, startIndex = 0, ampBar, ampBarIndex;
+    let move, startIndex = 0, ampBar;
     if (audio.currentTime) {
       move = Math.round((audio.currentTime / audio.duration) * (peaks.length * waveWidth));
       startIndex = move / waveWidth | 0;
@@ -1413,14 +1372,13 @@ gameScene.add({
       // keep track of the amp bar
       if (x > waveWidth * (maxLength / 2 - 1) && x < waveWidth * (maxLength / 2 + 1)) {
         ampBar = wave;
-        ampBarIndex = i;
 
         // collision detection
         if (!gameOverScene.active) {
-          if ((ship.y < topY + topHeight &&
-               ship.y + ship.height > topY) ||
-              (ship.y < botY + botHeight &&
-               ship.y + ship.height > botY) ||
+          if (collidesWithShip(topY, topHeight) ||
+              collidesWithShip(botY, botHeight) ||
+              (wave.obstacle &&
+               collidesWithShip(wave.obstacle.y - wave.offset, wave.obstacle.height)) ||
               (ship.y < -50 || ship.y > kontra.canvas.height + 50)) {
             return gameOver();
           }
@@ -1430,6 +1388,11 @@ gameScene.add({
         ctx.fillStyle = '#00a3dc';
         ctx.fillRect(x, topY, wave.width, topHeight);  // top bar
         ctx.fillRect(x, botY, wave.width, botHeight);  // bottom bar
+      }
+
+      let obstacle;
+      if (obstacle = wave.obstacle) {
+        ctx.fillRect(x, obstacle.y - wave.offset, obstacle.width, obstacle.height);
       }
     }
 
@@ -1444,6 +1407,11 @@ gameScene.add({
 
       neonRect(x, topY, width, topHeight, 255, 0, 0);
       neonRect(x, botY, width, botHeight, 255, 0, 0);
+
+      let obstacle;
+      if (obstacle = ampBar.obstacle) {
+        neonRect(x, obstacle.y - ampBar.offset, obstacle.width, obstacle.height, 255, 0, 0);
+      }
     }
 
     ship.render(move);

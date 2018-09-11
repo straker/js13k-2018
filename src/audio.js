@@ -56,8 +56,6 @@ function loadAudio(url) {
  * @param {Event} e - File change event
  */
 async function uploadAudio(e) {
-  // show(loader);
-  // hide(introText, winText, startBtn, customUpload, restartBtn);
 
   // clear any previous uploaded song
   URL.revokeObjectURL(objectUrl);
@@ -67,13 +65,9 @@ async function uploadAudio(e) {
 
   await generateWaveData(objectUrl);
   songName = uploadFile.value.replace(/^.*fakepath/, '').substr(1);
-  // songTitle.textContent = 'Playing: ' + songName;
   getBestTime();
   uploadScene.hide();
   startBtn.onDown();
-
-  // hide(loader);
-  // show(songTitle, startBtn);
 }
 
 /**
@@ -95,39 +89,21 @@ async function generateWaveData(url) {
   let waves = peaks
     .map((peak, index) => peak >= 0 ? peak : peaks[index-1]);
 
-  // let averagePeaks = [0,0,0,0,0,0,0,0,0,0,0];
-  // waves.forEach(peak => {
-  //   averagePeaks[peak * 10 | 0]++;
-  // });
-
-  // console.log(averagePeaks);
-
   let pos = mid;  // position of next turn
   let lastPos = 0;  // position of the last turn
   let gapDistance = maxLength;  // how long to get to the next turn
   let step = 0;  // increment of each peak to pos
   let offset = 0;  // offset the wave data position to create curves
   let minBarDistance = 270;  // min distance between top and bottom wave bars
-
   let heightDt = minBarDistance - waveHeight + 10;  // distance between max height and wave height
   let heightStep = heightDt / (startBuffer.length + waves.length);  // game should reach the max bar height by end of the song
-
   let counter = 0;
-  let yOffset = 0;  // offset the center of the two waves
-  let lastYIndex = 0;  // last offset index
-  let lastOffsetValue = 0;
-
-  let lastYPos = 0;
-  let yStep = 0;
-  let yCounter = 0;
-  let yGapDistance = maxLength;
-  let yPos = 0;
 
   waveData = startBuffer
     .concat(waves)
     .map((peak, index) => {
+      let height = 160 + peak * waveHeight + heightStep * index;
       offset += step;
-      yOffset += yStep;
 
       if (++counter >= gapDistance) {
         counter = 0;
@@ -137,22 +113,18 @@ async function generateWaveData(url) {
         step = (pos - lastPos) / gapDistance;
       }
 
-      // if (++yCounter >= yGapDistance) {
-      //   yCounter = 0;
-      //   lastYPos = yPos;
-      //   yPos = 0 + (Math.random() * 360 - 180);
-      //   yGapDistance = 250 + (Math.random() * 200 - 100);  // generate random number between 100 and 300
-      //   yStep = (yPos - lastYPos) / yGapDistance;
-      // }
-
-      let height = 160 + peak * waveHeight + heightStep * index;
-      // if (peak > 0.50) {
-      //   height = kontra.canvas.height / 2 - 75;
-      // }
-
-      // if (index - lastYIndex > 25) {
-      //   lastYIndex = index;
-      // }
+      // obstacle height is inverse to peak height - the bigger the peak the smaller
+      // the obstacle since there is less room to maneuver. height is also based on
+      // time in song as the tunnel gets smaller so the obstacle should as well
+      let obstacle;
+      if (peak > 0.7) {
+        obstacle = {
+          x: index * waveWidth,
+          y: kontra.canvas.height / 2 - 50,
+          width: waveWidth,
+          height: 400 * (1 - peak) - heightStep * index
+        };
+      }
 
       return {
         x: index * waveWidth,
@@ -161,9 +133,8 @@ async function generateWaveData(url) {
         height: height,
         offset: offset,
         yOffset: 0,
-        // offset: 0,
-        // yOffset: lastYIndex == index && peak > 0.50 /*&& Math.abs(step) < 0.7*/ ? yOffset : 0
-      }
+        obstacle: obstacle
+      };
     });
 
   return Promise.resolve();
