@@ -117,6 +117,9 @@ menuScene.add({
     neonText('AUDIO', 50, 200, 0, 163, 220);
     neonText('DASH', 231, 315, 255, 0, 0);
     ctx.restore();
+    ctx.font = "25px 'Lucida Console', Monaco, monospace"
+    ctx.fillStyle = '#fff';
+    ctx.fillText('Play the waves of your songs', 100, 360);
 
     return '';
   }
@@ -136,7 +139,7 @@ let startBtn = Button({
 let uploadBtn = Button({
   x: kontra.canvas.width / 2,
   prev: startBtn,
-  text: 'UPLOAD',
+  text: 'UPLOAD SONG',
   onDown() {
     uploadFile.click();
     menuScene.hide();
@@ -196,7 +199,7 @@ uploadScene.add(uploadText);
 // Options Scene
 //------------------------------------------------------------
 let opts = [{
-  name: 'music',
+  name: 'volume',
   minValue: 0,
   maxValue: 1,
   inc: 0.05
@@ -332,7 +335,7 @@ let tutorialText = Text({
     let text = 'Tap or Hold';
 
     if (lastUsedInput === 'gamepad') {
-      drawAButton(this.x - fontMeasurement * 1.5, this.y + fontMeasurement * 1.5);
+      drawAButton(this.x - fontMeasurement, this.y + fontMeasurement * 1.5);
     }
     else if (lastUsedInput === 'keyboard' || lastUsedInput === 'mouse') {
       text = '[Spacebar] ' + text;
@@ -353,6 +356,7 @@ tutorialScene.add(tutorialText);
 let startMove;
 let startCount;
 let gameScene = Scene('game');
+let shipIndex;
 gameScene.add({
   render() {
     // context.currentTime would be as long as the audio took to load, so was
@@ -379,6 +383,8 @@ gameScene.add({
       }
     }
 
+    shipIndex = startIndex + maxLength / 2;
+
     // only draw the bars on the screen
     for (let i = startIndex; i < startIndex + maxLength && waveData[i]; i++) {
       let wave = waveData[i];
@@ -397,9 +403,8 @@ gameScene.add({
         if (!gameOverScene.active) {
           if (collidesWithShip(topY, topHeight) ||
               collidesWithShip(botY, botHeight) ||
-              (wave.obstacle &&
-               collidesWithShip(wave.obstacle.y - wave.offset, wave.obstacle.height)) ||
-              (ship.y < -50 || ship.y > kontra.canvas.height + 50)) {
+              ship.y < -50 ||
+              ship.y > kontra.canvas.height + 50) {
             return gameOver();
           }
         }
@@ -408,11 +413,6 @@ gameScene.add({
         ctx.fillStyle = '#00a3dc';
         ctx.fillRect(x, topY, wave.width, topHeight);  // top bar
         ctx.fillRect(x, botY, wave.width, botHeight);  // bottom bar
-      }
-
-      let obstacle;
-      if (obstacle = wave.obstacle) {
-        ctx.fillRect(x, obstacle.y - wave.offset, obstacle.width, obstacle.height);
       }
     }
 
@@ -427,11 +427,6 @@ gameScene.add({
 
       neonRect(x, topY, width, topHeight, 255, 0, 0);
       neonRect(x, botY, width, botHeight, 255, 0, 0);
-
-      let obstacle;
-      if (obstacle = ampBar.obstacle) {
-        neonRect(x, obstacle.y - ampBar.offset, obstacle.width, obstacle.height, 255, 0, 0);
-      }
     }
 
     ship.render(move);

@@ -121,9 +121,9 @@ const ctx = kontra.context;
 const mid = kontra.canvas.height / 2;  // midpoint of the canvas
 const waveWidth = 2;
 const waveHeight = 215;
-const maxLength = kontra.canvas.width / waveWidth + 3 | 0; // maximum number of peaks to show on screen
+const maxLength = kontra.canvas.width / waveWidth + 2 | 0; // maximum number of peaks to show on screen
 const defaultOptions = {
-  music: 1,
+  volume: 1,
   uiScale: 1,
   gameSpeed: 1
 };
@@ -175,6 +175,9 @@ function collidesWithShip(y, height) {
   return ship.y < y + height && ship.y + ship.height > y;
 }
 
+function getSign(num) {
+  return num < 0 ? -1 : num > 0 ? 1 : 0;
+}
 
 
 
@@ -191,7 +194,7 @@ function start() {
   startCount = 0;
 
   audio.currentTime = 0;
-  audio.volume = options.music;
+  audio.volume = options.volume;
   audio.playbackRate = options.gameSpeed;
 
   ship.points = [];
@@ -222,7 +225,7 @@ function win() {
 //------------------------------------------------------------
 // Button
 //------------------------------------------------------------
-let uiSpacer = 15;
+let uiSpacer = 2.5;
 
 /**
  * Set the dimensions of the UI element.
@@ -458,37 +461,78 @@ async function generateWaveData(url) {
   let gapDistance = maxLength;  // how long to get to the next turn
   let step = 0;  // increment of each peak to pos
   let offset = 0;  // offset the wave data position to create curves
+
   let minBarDistance = 270;  // min distance between top and bottom wave bars
   let heightDt = minBarDistance - waveHeight + 10;  // distance between max height and wave height
   let heightStep = heightDt / (startBuffer.length + waves.length);  // game should reach the max bar height by end of the song
   let counter = 0;
+  let peakVisited = false;
+  let obstacle;
+  let prevObstacle;
+
+  let yPos = 0;
+  let yLastPos = 0;
+  let yGapDistance = maxLength;
+  let yStep = 0;
+  let yOffset = 0;
+  let yCounter = 0;
+
+  let barOffset;
 
   waveData = startBuffer
     .concat(waves)
-    .map((peak, index) => {
-      let height = 160 + peak * waveHeight + heightStep * index;
-      offset += step;
+    .map((peak, index, waves) => {
 
-      if (++counter >= gapDistance) {
-        counter = 0;
-        lastPos = pos;
-        pos = mid + (Math.random() * 600 - 300);  // generate random number between -300 and 300
-        gapDistance = 300 + (Math.random() * 200 - 100);  // generate random number between 200 and 400
-        step = (pos - lastPos) / gapDistance;
+      if (index >= startBuffer.length) {
+        offset += step;
+        yOffset += yStep
+
+        // all calculations are based on the peaks data so that the path is the
+        // same every time
+        let peakIndex = index - startBuffer.length;
+        let anchorPeak = peaks[peakIndex];
+
+        if (++counter >= gapDistance) {
+          counter = 0;
+          lastPos = pos;
+          pos = mid + getSign(anchorPeak) * (300 - 300 * Math.abs(anchorPeak));
+          // pos = mid + (Math.random() * 600 - 300);  // generate random number between -300 and 300
+          // gapDistance = 300 + (Math.random() * 200 - 100);  // generate random number between 200 and 400
+
+          // use a new anchor peak to determine each "random", but get the new peak
+          // base don the current anchor peak (somehow)
+          gapDistance = 300 + getSign(anchorPeak) * (100 - 100 * Math.abs(anchorPeak));
+          step = (pos - lastPos) / gapDistance;
+        }
+
+        if (++yCounter >= yGapDistance) {
+          let max = (225 - heightStep * index) / 2;
+
+          yCounter = 0;
+          lastYPos = yPos;
+          yGapDistance = 100;
+          yPos = getRandom(-max, max);
+          yStep = (yPos - lastYPos) / yGapDistance;
+        }
       }
 
-      // obstacle height is inverse to peak height - the bigger the peak the smaller
-      // the obstacle since there is less room to maneuver. height is also based on
-      // time in song as the tunnel gets smaller so the obstacle should as well
-      let obstacle;
-      if (peak > 0.7) {
-        obstacle = {
-          x: index * waveWidth,
-          y: kontra.canvas.height / 2 - 50,
-          width: waveWidth,
-          height: 400 * (1 - peak) - heightStep * index
-        };
+      // a song is more or less "intense" based on how much it switches between
+      // high and low peaks. a song like "Through the Fire and the Flames" has
+      // a high rate of switching so is more intense. need to look a few peaks
+      // before to ensure we find the low peaks
+      let peakThreshold = 0.38; // increase or decrease to get less or more obstacles
+      let lowPeak = 1;
+      for (let i = index - 5; i < index; i++) {
+        if (waves[i] < lowPeak) {
+          lowPeak = waves[i];
+        }
       }
+
+      // don't create obstacles when the slope of the offset is too large
+      let addObstacle = index > maxLength * 3 && peak - lowPeak >= peakThreshold && step < 0.7;
+      let height = addObstacle
+        ? kontra.canvas.height / 2 - Math.max(65, 35 * (1 / peak))
+        : 160 + peak * waveHeight + heightStep * index;
 
       return {
         x: index * waveWidth,
@@ -496,8 +540,7 @@ async function generateWaveData(url) {
         width: waveWidth,
         height: height,
         offset: offset,
-        yOffset: 0,
-        obstacle: obstacle
+        yOffset: addObstacle ? yOffset : 0
       };
     });
 
@@ -695,10 +738,10 @@ function showHelpText() {
     ctx.fillText('[Spacebar] Select', 50 - fontMeasurement, kontra.canvas.height - 50 + fontMeasurement / 2.5);
   }
   else if (lastUsedInput === 'gamepad') {
-    drawAButton(x, y);
+    drawAButton(50, kontra.canvas.height - 50);
     setFont(18);
     ctx.fillStyle = 'white';
-    ctx.fillText(text, 50 + fontMeasurement * 1.5, kontra.canvas.height - 50 + fontMeasurement / 2.5);
+    ctx.fillText('Select', 50 + fontMeasurement * 1.75, kontra.canvas.height - 50 + fontMeasurement / 2.5);
   }
 
   ctx.restore();
@@ -1097,6 +1140,9 @@ menuScene.add({
     neonText('AUDIO', 50, 200, 0, 163, 220);
     neonText('DASH', 231, 315, 255, 0, 0);
     ctx.restore();
+    ctx.font = "25px 'Lucida Console', Monaco, monospace"
+    ctx.fillStyle = '#fff';
+    ctx.fillText('Play the waves of your songs', 100, 360);
 
     return '';
   }
@@ -1116,7 +1162,7 @@ let startBtn = Button({
 let uploadBtn = Button({
   x: kontra.canvas.width / 2,
   prev: startBtn,
-  text: 'UPLOAD',
+  text: 'UPLOAD SONG',
   onDown() {
     uploadFile.click();
     menuScene.hide();
@@ -1176,7 +1222,7 @@ uploadScene.add(uploadText);
 // Options Scene
 //------------------------------------------------------------
 let opts = [{
-  name: 'music',
+  name: 'volume',
   minValue: 0,
   maxValue: 1,
   inc: 0.05
@@ -1312,7 +1358,7 @@ let tutorialText = Text({
     let text = 'Tap or Hold';
 
     if (lastUsedInput === 'gamepad') {
-      drawAButton(this.x - fontMeasurement * 1.5, this.y + fontMeasurement * 1.5);
+      drawAButton(this.x - fontMeasurement, this.y + fontMeasurement * 1.5);
     }
     else if (lastUsedInput === 'keyboard' || lastUsedInput === 'mouse') {
       text = '[Spacebar] ' + text;
@@ -1333,6 +1379,7 @@ tutorialScene.add(tutorialText);
 let startMove;
 let startCount;
 let gameScene = Scene('game');
+let shipIndex;
 gameScene.add({
   render() {
     // context.currentTime would be as long as the audio took to load, so was
@@ -1359,6 +1406,8 @@ gameScene.add({
       }
     }
 
+    shipIndex = startIndex + maxLength / 2;
+
     // only draw the bars on the screen
     for (let i = startIndex; i < startIndex + maxLength && waveData[i]; i++) {
       let wave = waveData[i];
@@ -1377,9 +1426,8 @@ gameScene.add({
         if (!gameOverScene.active) {
           if (collidesWithShip(topY, topHeight) ||
               collidesWithShip(botY, botHeight) ||
-              (wave.obstacle &&
-               collidesWithShip(wave.obstacle.y - wave.offset, wave.obstacle.height)) ||
-              (ship.y < -50 || ship.y > kontra.canvas.height + 50)) {
+              ship.y < -50 ||
+              ship.y > kontra.canvas.height + 50) {
             return gameOver();
           }
         }
@@ -1388,11 +1436,6 @@ gameScene.add({
         ctx.fillStyle = '#00a3dc';
         ctx.fillRect(x, topY, wave.width, topHeight);  // top bar
         ctx.fillRect(x, botY, wave.width, botHeight);  // bottom bar
-      }
-
-      let obstacle;
-      if (obstacle = wave.obstacle) {
-        ctx.fillRect(x, obstacle.y - wave.offset, obstacle.width, obstacle.height);
       }
     }
 
@@ -1407,11 +1450,6 @@ gameScene.add({
 
       neonRect(x, topY, width, topHeight, 255, 0, 0);
       neonRect(x, botY, width, botHeight, 255, 0, 0);
-
-      let obstacle;
-      if (obstacle = ampBar.obstacle) {
-        neonRect(x, obstacle.y - ampBar.offset, obstacle.width, obstacle.height, 255, 0, 0);
-      }
     }
 
     ship.render(move);

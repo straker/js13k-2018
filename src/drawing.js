@@ -190,10 +190,10 @@ function showHelpText() {
     ctx.fillText('[Spacebar] Select', 50 - fontMeasurement, kontra.canvas.height - 50 + fontMeasurement / 2.5);
   }
   else if (lastUsedInput === 'gamepad') {
-    drawAButton(x, y);
+    drawAButton(50, kontra.canvas.height - 50);
     setFont(18);
     ctx.fillStyle = 'white';
-    ctx.fillText(text, 50 + fontMeasurement * 1.5, kontra.canvas.height - 50 + fontMeasurement / 2.5);
+    ctx.fillText('Select', 50 + fontMeasurement * 1.75, kontra.canvas.height - 50 + fontMeasurement / 2.5);
   }
 
   ctx.restore();

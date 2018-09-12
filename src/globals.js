@@ -7,9 +7,9 @@ const ctx = kontra.context;
 const mid = kontra.canvas.height / 2;  // midpoint of the canvas
 const waveWidth = 2;
 const waveHeight = 215;
-const maxLength = kontra.canvas.width / waveWidth + 3 | 0; // maximum number of peaks to show on screen
+const maxLength = kontra.canvas.width / waveWidth + 2 | 0; // maximum number of peaks to show on screen
 const defaultOptions = {
-  music: 1,
+  volume: 1,
   uiScale: 1,
   gameSpeed: 1
 };
@@ -61,6 +61,9 @@ function collidesWithShip(y, height) {
   return ship.y < y + height && ship.y + ship.height > y;
 }
 
+function getSign(num) {
+  return num < 0 ? -1 : num > 0 ? 1 : 0;
+}
 
 
 
@@ -77,7 +80,7 @@ function start() {
   startCount = 0;
 
   audio.currentTime = 0;
-  audio.volume = options.music;
+  audio.volume = options.volume;
   audio.playbackRate = options.gameSpeed;
 
   ship.points = [];
