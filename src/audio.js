@@ -112,39 +112,44 @@ async function generateWaveData(url) {
 
   let barOffset;
 
+  Random.setValues(peaks);
+
   waveData = startBuffer
     .concat(waves)
     .map((peak, index, waves) => {
 
+      // if (index === 36335) {
+      //   debugger;
+      // }
+
+      let maxPos = (225 - heightStep * index * 3) / 2;
+
       if (index >= startBuffer.length) {
         offset += step;
-        yOffset += yStep
+
+        // the steeper the slope the less drastic position changes we should have
+        yOffset += Math.abs(step) > 1
+          ? yStep / (Math.abs(step) * 1.25)
+          : yStep;
 
         // all calculations are based on the peaks data so that the path is the
         // same every time
         let peakIndex = index - startBuffer.length;
-        let anchorPeak = peaks[peakIndex];
+        Random.seed(peakIndex);
 
         if (++counter >= gapDistance) {
           counter = 0;
           lastPos = pos;
-          pos = mid + getSign(anchorPeak) * (300 - 300 * Math.abs(anchorPeak));
-          // pos = mid + (Math.random() * 600 - 300);  // generate random number between -300 and 300
-          // gapDistance = 300 + (Math.random() * 200 - 100);  // generate random number between 200 and 400
-
-          // use a new anchor peak to determine each "random", but get the new peak
-          // base don the current anchor peak (somehow)
-          gapDistance = 300 + getSign(anchorPeak) * (100 - 100 * Math.abs(anchorPeak));
+          pos = mid + Random.getNext(200);
+          gapDistance = 300 + Random.getNext(100);
           step = (pos - lastPos) / gapDistance;
         }
 
         if (++yCounter >= yGapDistance) {
-          let max = (225 - heightStep * index) / 2;
-
           yCounter = 0;
           lastYPos = yPos;
-          yGapDistance = 100;
-          yPos = getRandom(-max, max);
+          yGapDistance = 110 + Random.getNext(23);
+          yPos = Random.getNext(maxPos);
           yStep = (yPos - lastYPos) / yGapDistance;
         }
       }
@@ -161,11 +166,26 @@ async function generateWaveData(url) {
         }
       }
 
+      let maxPeak = 0;
+      for (let i = index - 20; i < index+20; i++) {
+        if (waves[i] > maxPeak) {
+          maxPeak = waves[i];
+        }
+      }
+
       // don't create obstacles when the slope of the offset is too large
-      let addObstacle = index > maxLength * 3 && peak - lowPeak >= peakThreshold && step < 0.7;
+      let addObstacle = index > maxLength * 3 && peak - lowPeak >= peakThreshold && Math.abs(step) < 1.35;
       let height = addObstacle
         ? kontra.canvas.height / 2 - Math.max(65, 35 * (1 / peak))
         : 160 + peak * waveHeight + heightStep * index;
+
+      // a song that goes from a low peak to a really high peak while the current
+      // yOffset is close to the top or bottom needs to drop the yOffset a bit so
+      // there's enough of a gap between the peaks
+      if (Math.abs(yOffset) > (minBarDistance - heightStep * index) / 2 &&
+          maxPeak - lowPeak > peakThreshold) {
+        yOffset += -getSign(yOffset) * 65;
+      }
 
       return {
         x: index * waveWidth,

@@ -61,9 +61,6 @@ function collidesWithShip(y, height) {
   return ship.y < y + height && ship.y + ship.height > y;
 }
 
-function getSign(num) {
-  return num < 0 ? -1 : num > 0 ? 1 : 0;
-}
 
 
 

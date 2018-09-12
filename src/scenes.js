@@ -117,9 +117,11 @@ menuScene.add({
     neonText('AUDIO', 50, 200, 0, 163, 220);
     neonText('DASH', 231, 315, 255, 0, 0);
     ctx.restore();
-    ctx.font = "25px 'Lucida Console', Monaco, monospace"
+    // ctx.font = "40px 'Lucida Console', Monaco, monospace"
+    // neonText('Ride the Wave', 200, 360, 0, 163, 220);
     ctx.fillStyle = '#fff';
-    ctx.fillText('Play the waves of your songs', 100, 360);
+    ctx.font = "30px 'Lucida Console', Monaco, monospace"
+    ctx.fillText('Ride the Wave', 202, 360);
 
     return '';
   }
@@ -405,7 +407,7 @@ gameScene.add({
               collidesWithShip(botY, botHeight) ||
               ship.y < -50 ||
               ship.y > kontra.canvas.height + 50) {
-            return gameOver();
+            // return gameOver();
           }
         }
       }
