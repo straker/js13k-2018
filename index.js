@@ -1475,7 +1475,7 @@ gameScene.add({
               collidesWithShip(botY, botHeight) ||
               ship.y < -50 ||
               ship.y > kontra.canvas.height + 50) {
-            // return gameOver();
+            return gameOver();
           }
         }
       }
