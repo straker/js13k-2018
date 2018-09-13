@@ -2,6 +2,7 @@
 // Input Handlers
 //------------------------------------------------------------
 let touchPressed;
+let lastInputTime = 0;
 window.addEventListener('mousedown', handleOnDown);
 window.addEventListener('touchstart', handleOnDown);
 window.addEventListener('mouseup', handleOnUp);
@@ -23,9 +24,15 @@ window.addEventListener('contextmenu', e => {
  */
 function handleOnDown(e) {
   touchPressed = true;
+  uploadBtn.disabled = false;
 
   let pageX, pageY;
   if (e.type.indexOf('mouse') !== -1) {
+
+    // there's a bug in chrome where it fires a mousedown event right after
+    // tapping, so we need to ignore them to get the correct last input
+    if (lastUsedInput === 'touch' && performance.now() - lastInputTime < 1000) return;
+
     lastUsedInput = 'mouse';
     pageX = e.pageX;
     pageY = e.pageY;
@@ -71,6 +78,8 @@ function handleOnDown(e) {
       });
     }
   }
+
+  lastInputTime = performance.now();
 }
 
 /**
@@ -98,7 +107,7 @@ function handleArrowDownUp(inc) {
     }
 
     let child = activeScene.children[index];
-    if (child && child.focus) {
+    if (child && child.focus && !child.disabled) {
       child.focus();
       break;
     }
@@ -108,6 +117,7 @@ function handleArrowDownUp(inc) {
 // select button
 kontra.keys.bind('space', () => {
   lastUsedInput = 'keyboard';
+  uploadBtn.disabled = false;
 
   if (focusedBtn && focusedBtn.onDown) {
     focusedBtn.onDown();
@@ -117,12 +127,14 @@ kontra.keys.bind('space', () => {
 // move focus button with arrow keys
 kontra.keys.bind('up', (e) => {
   lastUsedInput = 'keyboard';
+  uploadBtn.disabled = false;
 
   e.preventDefault();
   handleArrowDownUp(-1);
 });
 kontra.keys.bind('down', (e) => {
   lastUsedInput = 'keyboard';
+  uploadBtn.disabled = false;
 
   e.preventDefault();
   handleArrowDownUp(1);
@@ -162,6 +174,11 @@ function updateGamepad() {
     lastUsedInput = 'gamepad';
     aDuration += 1/60;
     aDt += 1/60;
+
+    // it seems the browser won't open the file dialog window when using a
+    // controller as the input, even when programmatically calling the click
+    // event on the file input
+    uploadBtn.disabled = true;
   }
   else {
     aDuration = 0;
@@ -184,6 +201,7 @@ function updateGamepad() {
     lastUsedInput = 'gamepad';
     axesDuration += 1/60;
     axesDt += 1/60;
+    uploadBtn.disabled = true;
   }
   else {
     axesDuration = 0;

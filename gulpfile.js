@@ -29,7 +29,7 @@ gulp.task('dist', function() {
 })
 
 gulp.task('watch', function() {
-  gulp.watch('src/*.js', ['build']);
+  gulp.watch('src/*.js', ['build', 'dist']);
 });
 
 gulp.task('default', ['build']);

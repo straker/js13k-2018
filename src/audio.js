@@ -56,17 +56,19 @@ function loadAudio(url) {
  * @param {Event} e - File change event
  */
 async function uploadAudio(e) {
+  menuScene.hide();
+  loadingScene.show();
 
   // clear any previous uploaded song
   URL.revokeObjectURL(objectUrl);
 
   let file = e.currentTarget.files[0];
   objectUrl = URL.createObjectURL(file);
-
-  await generateWaveData(objectUrl);
   songName = uploadFile.value.replace(/^.*fakepath/, '').substr(1);
+
+  await fetchAudio(objectUrl);
   getBestTime();
-  uploadScene.hide();
+  loadingScene.hide();
   startBtn.onDown();
 }
 
@@ -74,10 +76,16 @@ async function uploadAudio(e) {
  * Generate the wave data for an audio file.
  * @param {string} url - URL of the audio file
  */
-async function generateWaveData(url) {
+async function fetchAudio(url) {
   buffer = await loadAudioBuffer(url);
   audio = await loadAudio(url);
 
+  generateWaveData();
+
+  return Promise.resolve();
+}
+
+function generateWaveData() {
   // numPeaks determines the speed of the game, the less peaks per duration, the
   // slower the game plays
   let numPeaks = audio.duration / 8 | 0;
@@ -110,7 +118,7 @@ async function generateWaveData(url) {
   let yOffset = 0;
   let yCounter = 0;
 
-  let barOffset;
+  let isIntroSong = songName === 'AudioDashDefault.mp3';
 
   Random.setValues(peaks);
 
@@ -118,19 +126,27 @@ async function generateWaveData(url) {
     .concat(waves)
     .map((peak, index, waves) => {
 
-      // if (index === 36335) {
+      // if (index === 13146) {
       //   debugger;
       // }
 
-      let maxPos = (225 - heightStep * index * 3) / 2;
+      let maxPos = (190 - heightStep * index) / 2;
 
-      if (index >= startBuffer.length) {
+      // for the intro song give the player some time to get use to the controls
+      // before adding curves (numbers are tailored to points in the song)
+      let firstCurveIndex = maxLength * (isIntroSong ? 4 : 1);
+      if (index >= firstCurveIndex) {
         offset += step;
 
         // the steeper the slope the less drastic position changes we should have
         yOffset += Math.abs(step) > 1
           ? yStep / (Math.abs(step) * 1.25)
           : yStep;
+
+        if (yPos < 0 && yOffset < yPos ||
+            yPos > 0 && yOffset > yPos) {
+          yOffset = yPos;
+        }
 
         // all calculations are based on the peaks data so that the path is the
         // same every time
@@ -173,8 +189,12 @@ async function generateWaveData(url) {
         }
       }
 
+      // for the intro song give the player some time to get use to the controls
+      // before adding obstacles (numbers are tailored to points in the song)
+      let firstObstacleIndex = maxLength * (isIntroSong ? 15 : 3);
+
       // don't create obstacles when the slope of the offset is too large
-      let addObstacle = index > maxLength * 3 && peak - lowPeak >= peakThreshold && Math.abs(step) < 1.35;
+      let addObstacle = index > firstObstacleIndex && peak - lowPeak >= peakThreshold && Math.abs(step) < 1.35;
       let height = addObstacle
         ? kontra.canvas.height / 2 - Math.max(65, 35 * (1 / peak))
         : 160 + peak * waveHeight + heightStep * index;
@@ -182,10 +202,18 @@ async function generateWaveData(url) {
       // a song that goes from a low peak to a really high peak while the current
       // yOffset is close to the top or bottom needs to drop the yOffset a bit so
       // there's enough of a gap between the peaks
-      if (Math.abs(yOffset) > (minBarDistance - heightStep * index) / 2 &&
-          maxPeak - lowPeak > peakThreshold) {
-        yOffset += -getSign(yOffset) * 65;
-      }
+      // if (Math.abs(yOffset) > (minBarDistance - heightStep * index) / 2 &&
+      //     maxPeak - lowPeak > peakThreshold) {
+      //   yOffset += -getSign(yOffset) * 65;
+      //   console.log('hit here');
+      // }
+
+      // a song that goes from a low peak to a really high peak while in an obstacle
+      // would create a spike in the obstacle that is too narrow to pass so we need
+      // to match the height to the others
+      // if (addObstacle && maxPeak - peak > peakThreshold) {
+      //   height = kontra.canvas.height / 2 - Math.max(65, 35 * (1 / maxPeak));
+      // }
 
       return {
         x: index * waveWidth,
@@ -193,9 +221,8 @@ async function generateWaveData(url) {
         width: waveWidth,
         height: height,
         offset: offset,
-        yOffset: addObstacle ? yOffset : 0
+        yOffset: addObstacle && index > firstObstacleIndex ? yOffset : 0,
+        yPos: yPos
       };
     });
-
-  return Promise.resolve();
 }

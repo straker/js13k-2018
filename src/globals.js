@@ -19,7 +19,7 @@ let peaks;  // peak data of the audio file
 let waveData;  // array of wave audio objects based on peak data
 let startBuffer;  // duplicated wave data added to the front of waveData to let the game start in the middle of the screen
 let loop;  // game loop
-let songName = 'SuperHero.mp3';  // name of the song
+let songName = 'AudioDashDefault.mp3';  // name of the song
 let bestTimes;  // object of best times for all songs
 let bestTime;  // best time for a single song
 let activeScenes = [];  // currently active scenes

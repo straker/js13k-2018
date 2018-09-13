@@ -133,7 +133,7 @@ let peaks;  // peak data of the audio file
 let waveData;  // array of wave audio objects based on peak data
 let startBuffer;  // duplicated wave data added to the front of waveData to let the game start in the middle of the screen
 let loop;  // game loop
-let songName = 'SuperHero.mp3';  // name of the song
+let songName = 'AudioDashDefault.mp3';  // name of the song
 let bestTimes;  // object of best times for all songs
 let bestTime;  // best time for a single song
 let activeScenes = [];  // currently active scenes
@@ -222,7 +222,7 @@ function win() {
 //------------------------------------------------------------
 // Button
 //------------------------------------------------------------
-let uiSpacer = 2.5;
+let uiSpacer = 5;
 
 /**
  * Set the dimensions of the UI element.
@@ -420,17 +420,19 @@ function loadAudio(url) {
  * @param {Event} e - File change event
  */
 async function uploadAudio(e) {
+  menuScene.hide();
+  loadingScene.show();
 
   // clear any previous uploaded song
   URL.revokeObjectURL(objectUrl);
 
   let file = e.currentTarget.files[0];
   objectUrl = URL.createObjectURL(file);
-
-  await generateWaveData(objectUrl);
   songName = uploadFile.value.replace(/^.*fakepath/, '').substr(1);
+
+  await fetchAudio(objectUrl);
   getBestTime();
-  uploadScene.hide();
+  loadingScene.hide();
   startBtn.onDown();
 }
 
@@ -438,10 +440,16 @@ async function uploadAudio(e) {
  * Generate the wave data for an audio file.
  * @param {string} url - URL of the audio file
  */
-async function generateWaveData(url) {
+async function fetchAudio(url) {
   buffer = await loadAudioBuffer(url);
   audio = await loadAudio(url);
 
+  generateWaveData();
+
+  return Promise.resolve();
+}
+
+function generateWaveData() {
   // numPeaks determines the speed of the game, the less peaks per duration, the
   // slower the game plays
   let numPeaks = audio.duration / 8 | 0;
@@ -474,7 +482,7 @@ async function generateWaveData(url) {
   let yOffset = 0;
   let yCounter = 0;
 
-  let barOffset;
+  let isIntroSong = songName === 'AudioDashDefault.mp3';
 
   Random.setValues(peaks);
 
@@ -482,19 +490,27 @@ async function generateWaveData(url) {
     .concat(waves)
     .map((peak, index, waves) => {
 
-      // if (index === 36335) {
+      // if (index === 13146) {
       //   debugger;
       // }
 
-      let maxPos = (225 - heightStep * index * 3) / 2;
+      let maxPos = (190 - heightStep * index) / 2;
 
-      if (index >= startBuffer.length) {
+      // for the intro song give the player some time to get use to the controls
+      // before adding curves (numbers are tailored to points in the song)
+      let firstCurveIndex = maxLength * (isIntroSong ? 4 : 1);
+      if (index >= firstCurveIndex) {
         offset += step;
 
         // the steeper the slope the less drastic position changes we should have
         yOffset += Math.abs(step) > 1
           ? yStep / (Math.abs(step) * 1.25)
           : yStep;
+
+        if (yPos < 0 && yOffset < yPos ||
+            yPos > 0 && yOffset > yPos) {
+          yOffset = yPos;
+        }
 
         // all calculations are based on the peaks data so that the path is the
         // same every time
@@ -537,8 +553,12 @@ async function generateWaveData(url) {
         }
       }
 
+      // for the intro song give the player some time to get use to the controls
+      // before adding obstacles (numbers are tailored to points in the song)
+      let firstObstacleIndex = maxLength * (isIntroSong ? 15 : 3);
+
       // don't create obstacles when the slope of the offset is too large
-      let addObstacle = index > maxLength * 3 && peak - lowPeak >= peakThreshold && Math.abs(step) < 1.35;
+      let addObstacle = index > firstObstacleIndex && peak - lowPeak >= peakThreshold && Math.abs(step) < 1.35;
       let height = addObstacle
         ? kontra.canvas.height / 2 - Math.max(65, 35 * (1 / peak))
         : 160 + peak * waveHeight + heightStep * index;
@@ -546,10 +566,18 @@ async function generateWaveData(url) {
       // a song that goes from a low peak to a really high peak while the current
       // yOffset is close to the top or bottom needs to drop the yOffset a bit so
       // there's enough of a gap between the peaks
-      if (Math.abs(yOffset) > (minBarDistance - heightStep * index) / 2 &&
-          maxPeak - lowPeak > peakThreshold) {
-        yOffset += -getSign(yOffset) * 65;
-      }
+      // if (Math.abs(yOffset) > (minBarDistance - heightStep * index) / 2 &&
+      //     maxPeak - lowPeak > peakThreshold) {
+      //   yOffset += -getSign(yOffset) * 65;
+      //   console.log('hit here');
+      // }
+
+      // a song that goes from a low peak to a really high peak while in an obstacle
+      // would create a spike in the obstacle that is too narrow to pass so we need
+      // to match the height to the others
+      // if (addObstacle && maxPeak - peak > peakThreshold) {
+      //   height = kontra.canvas.height / 2 - Math.max(65, 35 * (1 / maxPeak));
+      // }
 
       return {
         x: index * waveWidth,
@@ -557,11 +585,10 @@ async function generateWaveData(url) {
         width: waveWidth,
         height: height,
         offset: offset,
-        yOffset: addObstacle ? yOffset : 0
+        yOffset: addObstacle && index > firstObstacleIndex ? yOffset : 0,
+        yPos: yPos
       };
     });
-
-  return Promise.resolve();
 }
 //------------------------------------------------------------
 // Drawing functions
@@ -781,6 +808,7 @@ function setFontMeasurement() {
 // Input Handlers
 //------------------------------------------------------------
 let touchPressed;
+let lastInputTime = 0;
 window.addEventListener('mousedown', handleOnDown);
 window.addEventListener('touchstart', handleOnDown);
 window.addEventListener('mouseup', handleOnUp);
@@ -802,9 +830,15 @@ window.addEventListener('contextmenu', e => {
  */
 function handleOnDown(e) {
   touchPressed = true;
+  uploadBtn.disabled = false;
 
   let pageX, pageY;
   if (e.type.indexOf('mouse') !== -1) {
+
+    // there's a bug in chrome where it fires a mousedown event right after
+    // tapping, so we need to ignore them to get the correct last input
+    if (lastUsedInput === 'touch' && performance.now() - lastInputTime < 1000) return;
+
     lastUsedInput = 'mouse';
     pageX = e.pageX;
     pageY = e.pageY;
@@ -850,6 +884,8 @@ function handleOnDown(e) {
       });
     }
   }
+
+  lastInputTime = performance.now();
 }
 
 /**
@@ -877,7 +913,7 @@ function handleArrowDownUp(inc) {
     }
 
     let child = activeScene.children[index];
-    if (child && child.focus) {
+    if (child && child.focus && !child.disabled) {
       child.focus();
       break;
     }
@@ -887,6 +923,7 @@ function handleArrowDownUp(inc) {
 // select button
 kontra.keys.bind('space', () => {
   lastUsedInput = 'keyboard';
+  uploadBtn.disabled = false;
 
   if (focusedBtn && focusedBtn.onDown) {
     focusedBtn.onDown();
@@ -896,12 +933,14 @@ kontra.keys.bind('space', () => {
 // move focus button with arrow keys
 kontra.keys.bind('up', (e) => {
   lastUsedInput = 'keyboard';
+  uploadBtn.disabled = false;
 
   e.preventDefault();
   handleArrowDownUp(-1);
 });
 kontra.keys.bind('down', (e) => {
   lastUsedInput = 'keyboard';
+  uploadBtn.disabled = false;
 
   e.preventDefault();
   handleArrowDownUp(1);
@@ -941,6 +980,11 @@ function updateGamepad() {
     lastUsedInput = 'gamepad';
     aDuration += 1/60;
     aDt += 1/60;
+
+    // it seems the browser won't open the file dialog window when using a
+    // controller as the input, even when programmatically calling the click
+    // event on the file input
+    uploadBtn.disabled = true;
   }
   else {
     aDuration = 0;
@@ -963,6 +1007,7 @@ function updateGamepad() {
     lastUsedInput = 'gamepad';
     axesDuration += 1/60;
     axesDt += 1/60;
+    uploadBtn.disabled = true;
   }
   else {
     axesDuration = 0;
@@ -1046,15 +1091,33 @@ let Random = {
   values: [],
   value: null,
   index: null,
+  numNegatives: 0,
+  numPositives: 0,
   setValues: function(values) {
     this.values = values;
+    this.numNegatives = 0;
+    this.numPositives = 0;
   },
   seed: function(index) {
     this.index = index;
     this.value = this.values[index];
   },
   getNext: function(num) {
-    let rand = getSign(this.value) * (num - num * Math.abs(this.value));
+    let sign = getSign(this.value);
+
+    if ((sign === -1 && this.numNegatives - this.numPositives > 100) ||
+        (sign === 1 && this.numPositives - this.numNegatives > 100)) {
+      sign = -sign
+    }
+
+    if (sign === -1) {
+      this.numNegatives++;
+    }
+    else {
+      this.numPositives++;
+    }
+
+    let rand = sign * (num - num * Math.abs(this.value));
     let randIndex = (this.value * 10000 % 100 * 5 | 0);
     let index = this.index - randIndex;
 
@@ -1189,7 +1252,7 @@ menuScene.add({
     // neonText('Ride the Wave', 200, 360, 0, 163, 220);
     ctx.fillStyle = '#fff';
     ctx.font = "30px 'Lucida Console', Monaco, monospace"
-    ctx.fillText('Ride the Wave', 202, 360);
+    ctx.fillText('Play the Wave', 202, 360);
 
     return '';
   }
@@ -1212,8 +1275,6 @@ let uploadBtn = Button({
   text: 'UPLOAD SONG',
   onDown() {
     uploadFile.click();
-    menuScene.hide();
-    uploadScene.show();
   }
 });
 let optionsBtn = Button({
@@ -1233,11 +1294,11 @@ menuScene.add(startBtn, uploadBtn, optionsBtn);
 
 
 //------------------------------------------------------------
-// Upload Scene
+// Loading Scene
 //------------------------------------------------------------
-let uploadScene = Scene('upload');
+let loadingScene = Scene('upload');
 let loadingTimer = 0;
-let uploadText = Text({
+let loadingText = Text({
   x: 245,
   y: kontra.canvas.height / 2,
   text() {
@@ -1259,7 +1320,7 @@ let uploadText = Text({
     return text;
   }
 });
-uploadScene.add(uploadText);
+loadingScene.add(loadingText);
 
 
 
@@ -1542,7 +1603,9 @@ let menuBtn = Button({
   prev: restartBtn,
   text: 'MAIN MENU',
   onDown() {
-    gameScene.hide();
+    gameScene.hide(() => {
+      showTutorialBars = false;
+    });
     gameOverScene.hide(() => {
       menuScene.show(() => startBtn.domEl.focus());
     });
@@ -1616,2352 +1679,2352 @@ let ship = kontra.sprite({
     neonLine(this.points, move, 0, 163, 220);
   }
 });
-// //
-// // Sonant-X
-// //
-// // Copyright (c) 2014 Nicolas Vanhoren
-// //
-// // Sonant-X is a fork of js-sonant by Marcus Geelnard and Jake Taylor. It is
-// // still published using the same license (zlib license, see below).
-// //
-// // Copyright (c) 2011 Marcus Geelnard
-// // Copyright (c) 2008-2009 Jake Taylor
-// //
-// // This software is provided 'as-is', without any express or implied
-// // warranty. In no event will the authors be held liable for any damages
-// // arising from the use of this software.
-// //
-// // Permission is granted to anyone to use this software for any purpose,
-// // including commercial applications, and to alter it and redistribute it
-// // freely, subject to the following restrictions:
-// //
-// // 1. The origin of this software must not be misrepresented; you must not
-// //    claim that you wrote the original software. If you use this software
-// //    in a product, an acknowledgment in the product documentation would be
-// //    appreciated but is not required.
-// //
-// // 2. Altered source versions must be plainly marked as such, and must not be
-// //    misrepresented as being the original software.
-// //
-// // 3. This notice may not be removed or altered from any source
-// //    distribution.
+//
+// Sonant-X
+//
+// Copyright (c) 2014 Nicolas Vanhoren
+//
+// Sonant-X is a fork of js-sonant by Marcus Geelnard and Jake Taylor. It is
+// still published using the same license (zlib license, see below).
+//
+// Copyright (c) 2011 Marcus Geelnard
+// Copyright (c) 2008-2009 Jake Taylor
+//
+// This software is provided 'as-is', without any express or implied
+// warranty. In no event will the authors be held liable for any damages
+// arising from the use of this software.
+//
+// Permission is granted to anyone to use this software for any purpose,
+// including commercial applications, and to alter it and redistribute it
+// freely, subject to the following restrictions:
+//
+// 1. The origin of this software must not be misrepresented; you must not
+//    claim that you wrote the original software. If you use this software
+//    in a product, an acknowledgment in the product documentation would be
+//    appreciated but is not required.
+//
+// 2. Altered source versions must be plainly marked as such, and must not be
+//    misrepresented as being the original software.
+//
+// 3. This notice may not be removed or altered from any source
+//    distribution.
 
-// var sonantx;
-// (function() {
-// "use strict";
-// sonantx = {};
+var sonantx;
+(function() {
+"use strict";
+sonantx = {};
 
-// var WAVE_SPS = 44100;                    // Samples per second
-// var WAVE_CHAN = 2;                       // Channels
-// var MAX_TIME = 33; // maximum time, in millis, that the generator can use consecutively
+var WAVE_SPS = 44100;                    // Samples per second
+var WAVE_CHAN = 2;                       // Channels
+var MAX_TIME = 33; // maximum time, in millis, that the generator can use consecutively
 
-// var audioCtx = null;
+var audioCtx = null;
 
-// // Oscillators
-// function osc_sin(value)
-// {
-//     return Math.sin(value * 6.283184);
-// }
+// Oscillators
+function osc_sin(value)
+{
+    return Math.sin(value * 6.283184);
+}
 
-// function osc_square(value)
-// {
-//     if(osc_sin(value) < 0) return -1;
-//     return 1;
-// }
+function osc_square(value)
+{
+    if(osc_sin(value) < 0) return -1;
+    return 1;
+}
 
-// function osc_saw(value)
-// {
-//     return (value % 1) - 0.5;
-// }
+function osc_saw(value)
+{
+    return (value % 1) - 0.5;
+}
 
-// function osc_tri(value)
-// {
-//     var v2 = (value % 1) * 4;
-//     if(v2 < 2) return v2 - 1;
-//     return 3 - v2;
-// }
+function osc_tri(value)
+{
+    var v2 = (value % 1) * 4;
+    if(v2 < 2) return v2 - 1;
+    return 3 - v2;
+}
 
-// // Array of oscillator functions
-// var oscillators =
-// [
-//     osc_sin,
-//     osc_square,
-//     osc_saw,
-//     osc_tri
-// ];
+// Array of oscillator functions
+var oscillators =
+[
+    osc_sin,
+    osc_square,
+    osc_saw,
+    osc_tri
+];
 
-// function getnotefreq(n)
-// {
-//     return 0.00390625 * Math.pow(1.059463094, n - 128);
-// }
+function getnotefreq(n)
+{
+    return 0.00390625 * Math.pow(1.059463094, n - 128);
+}
 
-// function genBuffer(waveSize, callBack) {
-//     setTimeout(function() {
-//         // Create the channel work buffer
-//         var buf = new Uint8Array(waveSize * WAVE_CHAN * 2);
-//         var b = buf.length - 2;
-//         var iterate = function() {
-//             var begin = new Date();
-//             var count = 0;
-//             while(b >= 0)
-//             {
-//                 buf[b] = 0;
-//                 buf[b + 1] = 128;
-//                 b -= 2;
-//                 count += 1;
-//                 if (count % 1000 === 0 && (new Date() - begin) > MAX_TIME) {
-//                     setTimeout(iterate, 0);
-//                     return;
-//                 }
-//             }
-//             setTimeout(function() {callBack(buf);}, 0);
-//         };
-//         setTimeout(iterate, 0);
-//     }, 0);
-// }
+function genBuffer(waveSize, callBack) {
+    setTimeout(function() {
+        // Create the channel work buffer
+        var buf = new Uint8Array(waveSize * WAVE_CHAN * 2);
+        var b = buf.length - 2;
+        var iterate = function() {
+            var begin = new Date();
+            var count = 0;
+            while(b >= 0)
+            {
+                buf[b] = 0;
+                buf[b + 1] = 128;
+                b -= 2;
+                count += 1;
+                if (count % 1000 === 0 && (new Date() - begin) > MAX_TIME) {
+                    setTimeout(iterate, 0);
+                    return;
+                }
+            }
+            setTimeout(function() {callBack(buf);}, 0);
+        };
+        setTimeout(iterate, 0);
+    }, 0);
+}
 
-// function applyDelay(chnBuf, waveSamples, instr, rowLen, callBack) {
-//     var p1 = (instr.fx_delay_time * rowLen) >> 1;
-//     var t1 = instr.fx_delay_amt / 255;
+function applyDelay(chnBuf, waveSamples, instr, rowLen, callBack) {
+    var p1 = (instr.fx_delay_time * rowLen) >> 1;
+    var t1 = instr.fx_delay_amt / 255;
 
-//     var n1 = 0;
-//     var iterate = function() {
-//         var beginning = new Date();
-//         var count = 0;
-//         while(n1 < waveSamples - p1)
-//         {
-//             var b1 = 4 * n1;
-//             var l = 4 * (n1 + p1);
+    var n1 = 0;
+    var iterate = function() {
+        var beginning = new Date();
+        var count = 0;
+        while(n1 < waveSamples - p1)
+        {
+            var b1 = 4 * n1;
+            var l = 4 * (n1 + p1);
 
-//             // Left channel = left + right[-p1] * t1
-//             var x1 = chnBuf[l] + (chnBuf[l+1] << 8) +
-//                 (chnBuf[b1+2] + (chnBuf[b1+3] << 8) - 32768) * t1;
-//             chnBuf[l] = x1 & 255;
-//             chnBuf[l+1] = (x1 >> 8) & 255;
+            // Left channel = left + right[-p1] * t1
+            var x1 = chnBuf[l] + (chnBuf[l+1] << 8) +
+                (chnBuf[b1+2] + (chnBuf[b1+3] << 8) - 32768) * t1;
+            chnBuf[l] = x1 & 255;
+            chnBuf[l+1] = (x1 >> 8) & 255;
 
-//             // Right channel = right + left[-p1] * t1
-//             x1 = chnBuf[l+2] + (chnBuf[l+3] << 8) +
-//                 (chnBuf[b1] + (chnBuf[b1+1] << 8) - 32768) * t1;
-//             chnBuf[l+2] = x1 & 255;
-//             chnBuf[l+3] = (x1 >> 8) & 255;
-//             ++n1;
-//             count += 1;
-//             if (count % 1000 === 0 && (new Date() - beginning) > MAX_TIME) {
-//                 setTimeout(iterate, 0);
-//                 return;
-//             }
-//         }
-//         setTimeout(callBack, 0);
-//     };
-//     setTimeout(iterate, 0);
-// }
+            // Right channel = right + left[-p1] * t1
+            x1 = chnBuf[l+2] + (chnBuf[l+3] << 8) +
+                (chnBuf[b1] + (chnBuf[b1+1] << 8) - 32768) * t1;
+            chnBuf[l+2] = x1 & 255;
+            chnBuf[l+3] = (x1 >> 8) & 255;
+            ++n1;
+            count += 1;
+            if (count % 1000 === 0 && (new Date() - beginning) > MAX_TIME) {
+                setTimeout(iterate, 0);
+                return;
+            }
+        }
+        setTimeout(callBack, 0);
+    };
+    setTimeout(iterate, 0);
+}
 
-// sonantx.AudioGenerator = function(mixBuf) {
-//     this.mixBuf = mixBuf;
-//     this.waveSize = mixBuf.length / WAVE_CHAN / 2;
-// };
-// sonantx.AudioGenerator.prototype.getWave = function() {
-//     var mixBuf = this.mixBuf;
-//     var waveSize = this.waveSize;
-//     // Local variables
-//     var b, k, x, wave, l1, l2, s, y;
+sonantx.AudioGenerator = function(mixBuf) {
+    this.mixBuf = mixBuf;
+    this.waveSize = mixBuf.length / WAVE_CHAN / 2;
+};
+sonantx.AudioGenerator.prototype.getWave = function() {
+    var mixBuf = this.mixBuf;
+    var waveSize = this.waveSize;
+    // Local variables
+    var b, k, x, wave, l1, l2, s, y;
 
-//     // Turn critical object properties into local variables (performance)
-//     var waveBytes = waveSize * WAVE_CHAN * 2;
+    // Turn critical object properties into local variables (performance)
+    var waveBytes = waveSize * WAVE_CHAN * 2;
 
-//     // Convert to a WAVE file (in a binary string)
-//     l1 = waveBytes - 8;
-//     l2 = l1 - 36;
-//     wave = String.fromCharCode(82,73,70,70,
-//                                l1 & 255,(l1 >> 8) & 255,(l1 >> 16) & 255,(l1 >> 24) & 255,
-//                                87,65,86,69,102,109,116,32,16,0,0,0,1,0,2,0,
-//                                68,172,0,0,16,177,2,0,4,0,16,0,100,97,116,97,
-//                                l2 & 255,(l2 >> 8) & 255,(l2 >> 16) & 255,(l2 >> 24) & 255);
-//     b = 0;
-//     while(b < waveBytes)
-//     {
-//         // This is a GC & speed trick: don't add one char at a time - batch up
-//         // larger partial strings
-//         x = "";
-//         for (k = 0; k < 256 && b < waveBytes; ++k, b += 2)
-//         {
-//             // Note: We amplify and clamp here
-//             y = 4 * (mixBuf[b] + (mixBuf[b+1] << 8) - 32768);
-//             y = y < -32768 ? -32768 : (y > 32767 ? 32767 : y);
-//             x += String.fromCharCode(y & 255, (y >> 8) & 255);
-//         }
-//         wave += x;
-//     }
-//     return wave;
-// };
-// sonantx.AudioGenerator.prototype.getAudio = function() {
-//     var wave = this.getWave();
-//     var a = new Audio("data:audio/wav;base64," + btoa(wave));
-//     a.preload = "none";
-//     a.load();
-//     return a;
-// };
-// sonantx.AudioGenerator.prototype.getAudioBuffer = function(callBack) {
-//     if (audioCtx === null)
-//         audioCtx = new AudioContext();
-//     var mixBuf = this.mixBuf;
-//     var waveSize = this.waveSize;
+    // Convert to a WAVE file (in a binary string)
+    l1 = waveBytes - 8;
+    l2 = l1 - 36;
+    wave = String.fromCharCode(82,73,70,70,
+                               l1 & 255,(l1 >> 8) & 255,(l1 >> 16) & 255,(l1 >> 24) & 255,
+                               87,65,86,69,102,109,116,32,16,0,0,0,1,0,2,0,
+                               68,172,0,0,16,177,2,0,4,0,16,0,100,97,116,97,
+                               l2 & 255,(l2 >> 8) & 255,(l2 >> 16) & 255,(l2 >> 24) & 255);
+    b = 0;
+    while(b < waveBytes)
+    {
+        // This is a GC & speed trick: don't add one char at a time - batch up
+        // larger partial strings
+        x = "";
+        for (k = 0; k < 256 && b < waveBytes; ++k, b += 2)
+        {
+            // Note: We amplify and clamp here
+            y = 4 * (mixBuf[b] + (mixBuf[b+1] << 8) - 32768);
+            y = y < -32768 ? -32768 : (y > 32767 ? 32767 : y);
+            x += String.fromCharCode(y & 255, (y >> 8) & 255);
+        }
+        wave += x;
+    }
+    return wave;
+};
+sonantx.AudioGenerator.prototype.getAudio = function() {
+    var wave = this.getWave();
+    var a = new Audio("data:audio/wav;base64," + btoa(wave));
+    a.preload = "none";
+    a.load();
+    return a;
+};
+sonantx.AudioGenerator.prototype.getAudioBuffer = function(callBack) {
+    if (audioCtx === null)
+        audioCtx = new AudioContext();
+    var mixBuf = this.mixBuf;
+    var waveSize = this.waveSize;
 
-//     var buffer = audioCtx.createBuffer(WAVE_CHAN, this.waveSize, WAVE_SPS); // Create Mono Source Buffer from Raw Binary
-//     var lchan = buffer.getChannelData(0);
-//     var rchan = buffer.getChannelData(1);
-//     var b = 0;
-//     var iterate = function() {
-//         var beginning = new Date();
-//         var count = 0;
-//         while (b < waveSize) {
-//             var y = 4 * (mixBuf[b * 4] + (mixBuf[(b * 4) + 1] << 8) - 32768);
-//             y = y < -32768 ? -32768 : (y > 32767 ? 32767 : y);
-//             lchan[b] = y / 32768;
-//             y = 4 * (mixBuf[(b * 4) + 2] + (mixBuf[(b * 4) + 3] << 8) - 32768);
-//             y = y < -32768 ? -32768 : (y > 32767 ? 32767 : y);
-//             rchan[b] = y / 32768;
-//             b += 1;
-//             count += 1;
-//             if (count % 1000 === 0 && new Date() - beginning > MAX_TIME) {
-//                 setTimeout(iterate, 0);
-//                 return;
-//             }
-//         }
-//         setTimeout(function() {callBack(buffer);}, 0);
-//     };
-//     setTimeout(iterate, 0);
-// };
+    var buffer = audioCtx.createBuffer(WAVE_CHAN, this.waveSize, WAVE_SPS); // Create Mono Source Buffer from Raw Binary
+    var lchan = buffer.getChannelData(0);
+    var rchan = buffer.getChannelData(1);
+    var b = 0;
+    var iterate = function() {
+        var beginning = new Date();
+        var count = 0;
+        while (b < waveSize) {
+            var y = 4 * (mixBuf[b * 4] + (mixBuf[(b * 4) + 1] << 8) - 32768);
+            y = y < -32768 ? -32768 : (y > 32767 ? 32767 : y);
+            lchan[b] = y / 32768;
+            y = 4 * (mixBuf[(b * 4) + 2] + (mixBuf[(b * 4) + 3] << 8) - 32768);
+            y = y < -32768 ? -32768 : (y > 32767 ? 32767 : y);
+            rchan[b] = y / 32768;
+            b += 1;
+            count += 1;
+            if (count % 1000 === 0 && new Date() - beginning > MAX_TIME) {
+                setTimeout(iterate, 0);
+                return;
+            }
+        }
+        setTimeout(function() {callBack(buffer);}, 0);
+    };
+    setTimeout(iterate, 0);
+};
 
-// sonantx.SoundGenerator = function(instr, rowLen) {
-//     this.instr = instr;
-//     this.rowLen = rowLen || 5605;
+sonantx.SoundGenerator = function(instr, rowLen) {
+    this.instr = instr;
+    this.rowLen = rowLen || 5605;
 
-//     this.osc_lfo = oscillators[instr.lfo_waveform];
-//     this.osc1 = oscillators[instr.osc1_waveform];
-//     this.osc2 = oscillators[instr.osc2_waveform];
-//     this.attack = instr.env_attack;
-//     this.sustain = instr.env_sustain;
-//     this.release = instr.env_release;
-//     this.panFreq = Math.pow(2, instr.fx_pan_freq - 8) / this.rowLen;
-//     this.lfoFreq = Math.pow(2, instr.lfo_freq - 8) / this.rowLen;
-// };
-// sonantx.SoundGenerator.prototype.genSound = function(n, chnBuf, currentpos) {
-//     var marker = new Date();
-//     var c1 = 0;
-//     var c2 = 0;
+    this.osc_lfo = oscillators[instr.lfo_waveform];
+    this.osc1 = oscillators[instr.osc1_waveform];
+    this.osc2 = oscillators[instr.osc2_waveform];
+    this.attack = instr.env_attack;
+    this.sustain = instr.env_sustain;
+    this.release = instr.env_release;
+    this.panFreq = Math.pow(2, instr.fx_pan_freq - 8) / this.rowLen;
+    this.lfoFreq = Math.pow(2, instr.lfo_freq - 8) / this.rowLen;
+};
+sonantx.SoundGenerator.prototype.genSound = function(n, chnBuf, currentpos) {
+    var marker = new Date();
+    var c1 = 0;
+    var c2 = 0;
 
-//     // Precalculate frequencues
-//     var o1t = getnotefreq(n + (this.instr.osc1_oct - 8) * 12 + this.instr.osc1_det) * (1 + 0.0008 * this.instr.osc1_detune);
-//     var o2t = getnotefreq(n + (this.instr.osc2_oct - 8) * 12 + this.instr.osc2_det) * (1 + 0.0008 * this.instr.osc2_detune);
+    // Precalculate frequencues
+    var o1t = getnotefreq(n + (this.instr.osc1_oct - 8) * 12 + this.instr.osc1_det) * (1 + 0.0008 * this.instr.osc1_detune);
+    var o2t = getnotefreq(n + (this.instr.osc2_oct - 8) * 12 + this.instr.osc2_det) * (1 + 0.0008 * this.instr.osc2_detune);
 
-//     // State variable init
-//     var q = this.instr.fx_resonance / 255;
-//     var low = 0;
-//     var band = 0;
-//     for (var j = this.attack + this.sustain + this.release - 1; j >= 0; --j)
-//     {
-//         var k = j + currentpos;
+    // State variable init
+    var q = this.instr.fx_resonance / 255;
+    var low = 0;
+    var band = 0;
+    for (var j = this.attack + this.sustain + this.release - 1; j >= 0; --j)
+    {
+        var k = j + currentpos;
 
-//         // LFO
-//         var lfor = this.osc_lfo(k * this.lfoFreq) * this.instr.lfo_amt / 512 + 0.5;
+        // LFO
+        var lfor = this.osc_lfo(k * this.lfoFreq) * this.instr.lfo_amt / 512 + 0.5;
 
-//         // Envelope
-//         var e = 1;
-//         if(j < this.attack)
-//             e = j / this.attack;
-//         else if(j >= this.attack + this.sustain)
-//             e -= (j - this.attack - this.sustain) / this.release;
+        // Envelope
+        var e = 1;
+        if(j < this.attack)
+            e = j / this.attack;
+        else if(j >= this.attack + this.sustain)
+            e -= (j - this.attack - this.sustain) / this.release;
 
-//         // Oscillator 1
-//         var t = o1t;
-//         if(this.instr.lfo_osc1_freq) t += lfor;
-//         if(this.instr.osc1_xenv) t *= e * e;
-//         c1 += t;
-//         var rsample = this.osc1(c1) * this.instr.osc1_vol;
+        // Oscillator 1
+        var t = o1t;
+        if(this.instr.lfo_osc1_freq) t += lfor;
+        if(this.instr.osc1_xenv) t *= e * e;
+        c1 += t;
+        var rsample = this.osc1(c1) * this.instr.osc1_vol;
 
-//         // Oscillator 2
-//         t = o2t;
-//         if(this.instr.osc2_xenv) t *= e * e;
-//         c2 += t;
-//         rsample += this.osc2(c2) * this.instr.osc2_vol;
+        // Oscillator 2
+        t = o2t;
+        if(this.instr.osc2_xenv) t *= e * e;
+        c2 += t;
+        rsample += this.osc2(c2) * this.instr.osc2_vol;
 
-//         // Noise oscillator
-//         if(this.instr.noise_fader) rsample += (2*Math.random()-1) * this.instr.noise_fader * e;
+        // Noise oscillator
+        if(this.instr.noise_fader) rsample += (2*Math.random()-1) * this.instr.noise_fader * e;
 
-//         rsample *= e / 255;
+        rsample *= e / 255;
 
-//         // State variable filter
-//         var f = this.instr.fx_freq;
-//         if(this.instr.lfo_fx_freq) f *= lfor;
-//         f = 1.5 * Math.sin(f * 3.141592 / WAVE_SPS);
-//         low += f * band;
-//         var high = q * (rsample - band) - low;
-//         band += f * high;
-//         switch(this.instr.fx_filter)
-//         {
-//             case 1: // Hipass
-//                 rsample = high;
-//                 break;
-//             case 2: // Lopass
-//                 rsample = low;
-//                 break;
-//             case 3: // Bandpass
-//                 rsample = band;
-//                 break;
-//             case 4: // Notch
-//                 rsample = low + high;
-//                 break;
-//             default:
-//         }
+        // State variable filter
+        var f = this.instr.fx_freq;
+        if(this.instr.lfo_fx_freq) f *= lfor;
+        f = 1.5 * Math.sin(f * 3.141592 / WAVE_SPS);
+        low += f * band;
+        var high = q * (rsample - band) - low;
+        band += f * high;
+        switch(this.instr.fx_filter)
+        {
+            case 1: // Hipass
+                rsample = high;
+                break;
+            case 2: // Lopass
+                rsample = low;
+                break;
+            case 3: // Bandpass
+                rsample = band;
+                break;
+            case 4: // Notch
+                rsample = low + high;
+                break;
+            default:
+        }
 
-//         // Panning & master volume
-//         t = osc_sin(k * this.panFreq) * this.instr.fx_pan_amt / 512 + 0.5;
-//         rsample *= 39 * this.instr.env_master;
+        // Panning & master volume
+        t = osc_sin(k * this.panFreq) * this.instr.fx_pan_amt / 512 + 0.5;
+        rsample *= 39 * this.instr.env_master;
 
-//         // Add to 16-bit channel buffer
-//         k = k * 4;
-//         if (k + 3 < chnBuf.length) {
-//             var x = chnBuf[k] + (chnBuf[k+1] << 8) + rsample * (1 - t);
-//             chnBuf[k] = x & 255;
-//             chnBuf[k+1] = (x >> 8) & 255;
-//             x = chnBuf[k+2] + (chnBuf[k+3] << 8) + rsample * t;
-//             chnBuf[k+2] = x & 255;
-//             chnBuf[k+3] = (x >> 8) & 255;
-//         }
-//     }
-// };
-// sonantx.SoundGenerator.prototype.getAudioGenerator = function(n, callBack) {
-//     var bufferSize = (this.attack + this.sustain + this.release - 1) + (32 * this.rowLen);
-//     var self = this;
-//     genBuffer(bufferSize, function(buffer) {
-//         self.genSound(n, buffer, 0);
-//         applyDelay(buffer, bufferSize, self.instr, self.rowLen, function() {
-//             callBack(new sonantx.AudioGenerator(buffer));
-//         });
-//     });
-// };
-// sonantx.SoundGenerator.prototype.createAudio = function(n, callBack) {
-//     this.getAudioGenerator(n, function(ag) {
-//         callBack(ag.getAudio());
-//     });
-// };
-// sonantx.SoundGenerator.prototype.createAudioBuffer = function(n, callBack) {
-//     this.getAudioGenerator(n, function(ag) {
-//         ag.getAudioBuffer(callBack);
-//     });
-// };
+        // Add to 16-bit channel buffer
+        k = k * 4;
+        if (k + 3 < chnBuf.length) {
+            var x = chnBuf[k] + (chnBuf[k+1] << 8) + rsample * (1 - t);
+            chnBuf[k] = x & 255;
+            chnBuf[k+1] = (x >> 8) & 255;
+            x = chnBuf[k+2] + (chnBuf[k+3] << 8) + rsample * t;
+            chnBuf[k+2] = x & 255;
+            chnBuf[k+3] = (x >> 8) & 255;
+        }
+    }
+};
+sonantx.SoundGenerator.prototype.getAudioGenerator = function(n, callBack) {
+    var bufferSize = (this.attack + this.sustain + this.release - 1) + (32 * this.rowLen);
+    var self = this;
+    genBuffer(bufferSize, function(buffer) {
+        self.genSound(n, buffer, 0);
+        applyDelay(buffer, bufferSize, self.instr, self.rowLen, function() {
+            callBack(new sonantx.AudioGenerator(buffer));
+        });
+    });
+};
+sonantx.SoundGenerator.prototype.createAudio = function(n, callBack) {
+    this.getAudioGenerator(n, function(ag) {
+        callBack(ag.getAudio());
+    });
+};
+sonantx.SoundGenerator.prototype.createAudioBuffer = function(n, callBack) {
+    this.getAudioGenerator(n, function(ag) {
+        ag.getAudioBuffer(callBack);
+    });
+};
 
-// sonantx.MusicGenerator = function(song) {
-//     this.song = song;
-//     // Wave data configuration
-//     this.waveSize = WAVE_SPS * song.songLen; // Total song size (in samples)
-// };
-// sonantx.MusicGenerator.prototype.generateTrack = function (instr, mixBuf, callBack) {
-//     var self = this;
-//     genBuffer(this.waveSize, function(chnBuf) {
-//         // Preload/precalc some properties/expressions (for improved performance)
-//         var waveSamples = self.waveSize,
-//             waveBytes = self.waveSize * WAVE_CHAN * 2,
-//             rowLen = self.song.rowLen,
-//             endPattern = self.song.endPattern,
-//             soundGen = new sonantx.SoundGenerator(instr, rowLen);
+sonantx.MusicGenerator = function(song) {
+    this.song = song;
+    // Wave data configuration
+    this.waveSize = WAVE_SPS * song.songLen; // Total song size (in samples)
+};
+sonantx.MusicGenerator.prototype.generateTrack = function (instr, mixBuf, callBack) {
+    var self = this;
+    genBuffer(this.waveSize, function(chnBuf) {
+        // Preload/precalc some properties/expressions (for improved performance)
+        var waveSamples = self.waveSize,
+            waveBytes = self.waveSize * WAVE_CHAN * 2,
+            rowLen = self.song.rowLen,
+            endPattern = self.song.endPattern,
+            soundGen = new sonantx.SoundGenerator(instr, rowLen);
 
-//         var currentpos = 0;
-//         var p = 0;
-//         var row = 0;
-//         var recordSounds = function() {
-//             var beginning = new Date();
-//             while (true) {
-//                 if (row === 32) {
-//                     row = 0;
-//                     p += 1;
-//                     continue;
-//                 }
-//                 if (p === endPattern - 1) {
-//                     setTimeout(delay, 0);
-//                     return;
-//                 }
-//                 var cp = instr.p[p];
-//                 if (cp) {
-//                     var n = instr.c[cp - 1].n[row];
-//                     if (n) {
-//                         soundGen.genSound(n, chnBuf, currentpos);
-//                     }
-//                 }
-//                 currentpos += rowLen;
-//                 row += 1;
-//                 if (new Date() - beginning > MAX_TIME) {
-//                     setTimeout(recordSounds, 0);
-//                     return;
-//                 }
-//             }
-//         };
+        var currentpos = 0;
+        var p = 0;
+        var row = 0;
+        var recordSounds = function() {
+            var beginning = new Date();
+            while (true) {
+                if (row === 32) {
+                    row = 0;
+                    p += 1;
+                    continue;
+                }
+                if (p === endPattern - 1) {
+                    setTimeout(delay, 0);
+                    return;
+                }
+                var cp = instr.p[p];
+                if (cp) {
+                    var n = instr.c[cp - 1].n[row];
+                    if (n) {
+                        soundGen.genSound(n, chnBuf, currentpos);
+                    }
+                }
+                currentpos += rowLen;
+                row += 1;
+                if (new Date() - beginning > MAX_TIME) {
+                    setTimeout(recordSounds, 0);
+                    return;
+                }
+            }
+        };
 
-//         var delay = function() {
-//             applyDelay(chnBuf, waveSamples, instr, rowLen, finalize);
-//         };
+        var delay = function() {
+            applyDelay(chnBuf, waveSamples, instr, rowLen, finalize);
+        };
 
-//         var b2 = 0;
-//         var finalize = function() {
-//             var beginning = new Date();
-//             var count = 0;
-//             // Add to mix buffer
-//             while(b2 < waveBytes)
-//             {
-//                 var x2 = mixBuf[b2] + (mixBuf[b2+1] << 8) + chnBuf[b2] + (chnBuf[b2+1] << 8) - 32768;
-//                 mixBuf[b2] = x2 & 255;
-//                 mixBuf[b2+1] = (x2 >> 8) & 255;
-//                 b2 += 2;
-//                 count += 1;
-//                 if (count % 1000 === 0 && (new Date() - beginning) > MAX_TIME) {
-//                     setTimeout(finalize, 0);
-//                     return;
-//                 }
-//             }
-//             setTimeout(callBack, 0);
-//         };
-//         setTimeout(recordSounds, 0);
-//     });
-// };
-// sonantx.MusicGenerator.prototype.getAudioGenerator = function(callBack) {
-//     var self = this;
-//     genBuffer(this.waveSize, function(mixBuf) {
-//         var t = 0;
-//         var recu = function() {
-//             if (t < self.song.songData.length) {
-//                 t += 1;
-//                 self.generateTrack(self.song.songData[t - 1], mixBuf, recu);
-//             } else {
-//                 callBack(new sonantx.AudioGenerator(mixBuf));
-//             }
-//         };
-//         recu();
-//     });
-// };
-// sonantx.MusicGenerator.prototype.createAudio = function(callBack) {
-//     this.getAudioGenerator(function(ag) {
-//         callBack(ag.getAudio());
-//     });
-// };
-// sonantx.MusicGenerator.prototype.createAudioBuffer = function(callBack) {
-//     this.getAudioGenerator(function(ag) {
-//         ag.getAudioBuffer(callBack);
-//     });
-// };
+        var b2 = 0;
+        var finalize = function() {
+            var beginning = new Date();
+            var count = 0;
+            // Add to mix buffer
+            while(b2 < waveBytes)
+            {
+                var x2 = mixBuf[b2] + (mixBuf[b2+1] << 8) + chnBuf[b2] + (chnBuf[b2+1] << 8) - 32768;
+                mixBuf[b2] = x2 & 255;
+                mixBuf[b2+1] = (x2 >> 8) & 255;
+                b2 += 2;
+                count += 1;
+                if (count % 1000 === 0 && (new Date() - beginning) > MAX_TIME) {
+                    setTimeout(finalize, 0);
+                    return;
+                }
+            }
+            setTimeout(callBack, 0);
+        };
+        setTimeout(recordSounds, 0);
+    });
+};
+sonantx.MusicGenerator.prototype.getAudioGenerator = function(callBack) {
+    var self = this;
+    genBuffer(this.waveSize, function(mixBuf) {
+        var t = 0;
+        var recu = function() {
+            if (t < self.song.songData.length) {
+                t += 1;
+                self.generateTrack(self.song.songData[t - 1], mixBuf, recu);
+            } else {
+                callBack(new sonantx.AudioGenerator(mixBuf));
+            }
+        };
+        recu();
+    });
+};
+sonantx.MusicGenerator.prototype.createAudio = function(callBack) {
+    this.getAudioGenerator(function(ag) {
+        callBack(ag.getAudio());
+    });
+};
+sonantx.MusicGenerator.prototype.createAudioBuffer = function(callBack) {
+    this.getAudioGenerator(function(ag) {
+        ag.getAudioBuffer(callBack);
+    });
+};
 
-// })();
+})();
 
-// //------------------------------------------------------------
-// // Song
-// //------------------------------------------------------------
-// var song = {
-//     "rowLen": 2242,
-//     "endPattern": 49,
-//     "songData": [
-//         {
-//             "osc1_oct": 7,
-//             "osc1_det": 0,
-//             "osc1_detune": 0,
-//             "osc1_xenv": 1,
-//             "osc1_vol": 255,
-//             "osc1_waveform": 0,
-//             "osc2_oct": 7,
-//             "osc2_det": 0,
-//             "osc2_detune": 0,
-//             "osc2_xenv": 1,
-//             "osc2_vol": 255,
-//             "osc2_waveform": 0,
-//             "noise_fader": 0,
-//             "env_attack": 50,
-//             "env_sustain": 150,
-//             "env_release": 4800,
-//             "env_master": 200,
-//             "fx_filter": 2,
-//             "fx_freq": 600,
-//             "fx_resonance": 254,
-//             "fx_delay_time": 0,
-//             "fx_delay_amt": 0,
-//             "fx_pan_freq": 0,
-//             "fx_pan_amt": 0,
-//             "lfo_osc1_freq": 0,
-//             "lfo_fx_freq": 0,
-//             "lfo_freq": 0,
-//             "lfo_amt": 0,
-//             "lfo_waveform": 0,
-//             "p": [
-//                 1,
-//                 1,
-//                 1,
-//                 2,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 3,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 3,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 3,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 3,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 3,
-//                 1,
-//                 1,
-//                 1,
-//                 2
-//             ],
-//             "c": [
-//                 {
-//                     "n": [
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 }
-//             ]
-//         },
-//         {
-//             "osc1_oct": 8,
-//             "osc1_det": 0,
-//             "osc1_detune": 0,
-//             "osc1_xenv": 1,
-//             "osc1_vol": 160,
-//             "osc1_waveform": 0,
-//             "osc2_oct": 8,
-//             "osc2_det": 0,
-//             "osc2_detune": 0,
-//             "osc2_xenv": 1,
-//             "osc2_vol": 160,
-//             "osc2_waveform": 0,
-//             "noise_fader": 210,
-//             "env_attack": 50,
-//             "env_sustain": 200,
-//             "env_release": 6800,
-//             "env_master": 160,
-//             "fx_filter": 4,
-//             "fx_freq": 11025,
-//             "fx_resonance": 254,
-//             "fx_delay_time": 6,
-//             "fx_delay_amt": 0,
-//             "fx_pan_freq": 5,
-//             "fx_pan_amt": 61,
-//             "lfo_osc1_freq": 0,
-//             "lfo_fx_freq": 1,
-//             "lfo_freq": 4,
-//             "lfo_amt": 0,
-//             "lfo_waveform": 0,
-//             "p": [
-//                 1,
-//                 1,
-//                 1,
-//                 2,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 2,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 2,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 2,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 2,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1,
-//                 1
-//             ],
-//             "c": [
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         128,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 }
-//             ]
-//         },
-//         {
-//             "osc1_oct": 6,
-//             "osc1_det": 0,
-//             "osc1_detune": 0,
-//             "osc1_xenv": 0,
-//             "osc1_vol": 255,
-//             "osc1_waveform": 1,
-//             "osc2_oct": 7,
-//             "osc2_det": 0,
-//             "osc2_detune": 0,
-//             "osc2_xenv": 0,
-//             "osc2_vol": 154,
-//             "osc2_waveform": 1,
-//             "noise_fader": 0,
-//             "env_attack": 197,
-//             "env_sustain": 88,
-//             "env_release": 10614,
-//             "env_master": 45,
-//             "fx_filter": 2,
-//             "fx_freq": 4425,
-//             "fx_resonance": 163,
-//             "fx_delay_time": 8,
-//             "fx_delay_amt": 119,
-//             "fx_pan_freq": 3,
-//             "fx_pan_amt": 158,
-//             "lfo_osc1_freq": 0,
-//             "lfo_fx_freq": 0,
-//             "lfo_freq": 0,
-//             "lfo_amt": 0,
-//             "lfo_waveform": 0,
-//             "p": [
-//                 2,
-//                 3,
-//                 2,
-//                 3,
-//                 2,
-//                 3,
-//                 2,
-//                 3,
-//                 2,
-//                 3,
-//                 4,
-//                 5,
-//                 2,
-//                 3,
-//                 2,
-//                 3,
-//                 2,
-//                 3,
-//                 4,
-//                 5,
-//                 2,
-//                 3,
-//                 2,
-//                 3,
-//                 2,
-//                 3,
-//                 4,
-//                 5,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 2,
-//                 3,
-//                 2,
-//                 3,
-//                 2,
-//                 3,
-//                 4,
-//                 5,
-//                 2,
-//                 3,
-//                 2,
-//                 2
-//             ],
-//             "c": [
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         133,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         135,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         135,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         143,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         142,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         133,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         133,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         137,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         138,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 }
-//             ]
-//         },
-//         {
-//             "osc1_oct": 7,
-//             "osc1_det": 0,
-//             "osc1_detune": 0,
-//             "osc1_xenv": 1,
-//             "osc1_vol": 144,
-//             "osc1_waveform": 3,
-//             "osc2_oct": 6,
-//             "osc2_det": 0,
-//             "osc2_detune": 9,
-//             "osc2_xenv": 1,
-//             "osc2_vol": 162,
-//             "osc2_waveform": 0,
-//             "noise_fader": 255,
-//             "env_attack": 663,
-//             "env_sustain": 0,
-//             "env_release": 1584,
-//             "env_master": 37,
-//             "fx_filter": 1,
-//             "fx_freq": 6531,
-//             "fx_resonance": 132,
-//             "fx_delay_time": 12,
-//             "fx_delay_amt": 9,
-//             "fx_pan_freq": 0,
-//             "fx_pan_amt": 0,
-//             "lfo_osc1_freq": 0,
-//             "lfo_fx_freq": 0,
-//             "lfo_freq": 5,
-//             "lfo_amt": 0,
-//             "lfo_waveform": 0,
-//             "p": [
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 3,
-//                 3,
-//                 3,
-//                 3,
-//                 3,
-//                 3,
-//                 3,
-//                 3,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 4,
-//                 0,
-//                 0
-//             ],
-//             "c": [
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         140,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         145,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         147,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         152,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         152,
-//                         0,
-//                         0,
-//                         0,
-//                         152,
-//                         0,
-//                         0,
-//                         0,
-//                         152,
-//                         0,
-//                         0,
-//                         0,
-//                         152,
-//                         0,
-//                         0,
-//                         0,
-//                         152,
-//                         0,
-//                         0,
-//                         0,
-//                         152,
-//                         0,
-//                         0,
-//                         0,
-//                         152,
-//                         0,
-//                         0,
-//                         0,
-//                         152,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         152,
-//                         0,
-//                         152,
-//                         0,
-//                         152,
-//                         0,
-//                         0,
-//                         0,
-//                         152,
-//                         0,
-//                         152,
-//                         0,
-//                         152,
-//                         0,
-//                         0,
-//                         0,
-//                         152,
-//                         0,
-//                         152,
-//                         0,
-//                         152,
-//                         0,
-//                         0,
-//                         0,
-//                         152,
-//                         0,
-//                         152,
-//                         0,
-//                         152,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 }
-//             ]
-//         },
-//         {
-//             "osc1_oct": 7,
-//             "osc1_det": 0,
-//             "osc1_detune": 0,
-//             "osc1_xenv": 0,
-//             "osc1_vol": 63,
-//             "osc1_waveform": 2,
-//             "osc2_oct": 7,
-//             "osc2_det": 0,
-//             "osc2_detune": 0,
-//             "osc2_xenv": 0,
-//             "osc2_vol": 125,
-//             "osc2_waveform": 0,
-//             "noise_fader": 0,
-//             "env_attack": 444,
-//             "env_sustain": 3706,
-//             "env_release": 10614,
-//             "env_master": 124,
-//             "fx_filter": 0,
-//             "fx_freq": 2727,
-//             "fx_resonance": 199,
-//             "fx_delay_time": 0,
-//             "fx_delay_amt": 125,
-//             "fx_pan_freq": 3,
-//             "fx_pan_amt": 47,
-//             "lfo_osc1_freq": 1,
-//             "lfo_fx_freq": 0,
-//             "lfo_freq": 14,
-//             "lfo_amt": 0,
-//             "lfo_waveform": 1,
-//             "p": [
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 3,
-//                 4,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 3,
-//                 4,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 3,
-//                 4,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 3,
-//                 4,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 3,
-//                 4
-//             ],
-//             "c": [
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         159,
-//                         0,
-//                         0,
-//                         0,
-//                         157,
-//                         0,
-//                         157,
-//                         0,
-//                         0,
-//                         0,
-//                         157,
-//                         0,
-//                         0,
-//                         0,
-//                         152,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         123,
-//                         0,
-//                         0,
-//                         0,
-//                         126,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         130,
-//                         0,
-//                         0,
-//                         0,
-//                         131,
-//                         0,
-//                         0,
-//                         0,
-//                         130,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         130,
-//                         0,
-//                         0,
-//                         0,
-//                         131,
-//                         0,
-//                         0,
-//                         0,
-//                         128,
-//                         0,
-//                         0,
-//                         0,
-//                         126,
-//                         0,
-//                         0,
-//                         0,
-//                         125,
-//                         0,
-//                         0,
-//                         0,
-//                         123,
-//                         0,
-//                         0,
-//                         0,
-//                         121,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         123,
-//                         0,
-//                         0,
-//                         0,
-//                         121,
-//                         0,
-//                         0,
-//                         0,
-//                         123,
-//                         0,
-//                         0,
-//                         0,
-//                         125,
-//                         0,
-//                         0,
-//                         0,
-//                         126,
-//                         0,
-//                         0,
-//                         0,
-//                         125,
-//                         0,
-//                         0,
-//                         0,
-//                         121,
-//                         0,
-//                         0,
-//                         0,
-//                         123,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 }
-//             ]
-//         },
-//         {
-//             "osc1_oct": 9,
-//             "osc1_det": 0,
-//             "osc1_detune": 0,
-//             "osc1_xenv": 1,
-//             "osc1_vol": 64,
-//             "osc1_waveform": 1,
-//             "osc2_oct": 5,
-//             "osc2_det": 0,
-//             "osc2_detune": 0,
-//             "osc2_xenv": 0,
-//             "osc2_vol": 128,
-//             "osc2_waveform": 3,
-//             "noise_fader": 0,
-//             "env_attack": 1776,
-//             "env_sustain": 7105,
-//             "env_release": 19736,
-//             "env_master": 119,
-//             "fx_filter": 1,
-//             "fx_freq": 1523,
-//             "fx_resonance": 128,
-//             "fx_delay_time": 10,
-//             "fx_delay_amt": 39,
-//             "fx_pan_freq": 3,
-//             "fx_pan_amt": 92,
-//             "lfo_osc1_freq": 0,
-//             "lfo_fx_freq": 1,
-//             "lfo_freq": 2,
-//             "lfo_amt": 0,
-//             "lfo_waveform": 3,
-//             "p": [
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 2,
-//                 2,
-//                 2,
-//                 3,
-//                 2,
-//                 2,
-//                 2,
-//                 7,
-//                 2,
-//                 2,
-//                 2,
-//                 3,
-//                 2,
-//                 2,
-//                 2,
-//                 7,
-//                 8,
-//                 8,
-//                 8,
-//                 8,
-//                 8,
-//                 8,
-//                 9,
-//                 10,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 3,
-//                 7
-//             ],
-//             "c": [
-//                 {
-//                     "n": [
-//                         140,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         147,
-//                         0,
-//                         0,
-//                         0,
-//                         145,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         133,
-//                         0,
-//                         0,
-//                         0,
-//                         135,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         130,
-//                         0,
-//                         0,
-//                         0,
-//                         133,
-//                         0,
-//                         0,
-//                         0,
-//                         135,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         145,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         145,
-//                         0,
-//                         0,
-//                         0,
-//                         147,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         135,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         145,
-//                         0,
-//                         0,
-//                         0,
-//                         147,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         137,
-//                         0,
-//                         0,
-//                         0,
-//                         138,
-//                         0,
-//                         0,
-//                         0,
-//                         137,
-//                         0,
-//                         0,
-//                         0,
-//                         133,
-//                         0,
-//                         0,
-//                         0,
-//                         135,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         135,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         145,
-//                         0,
-//                         0,
-//                         0,
-//                         147,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         137,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         142,
-//                         0,
-//                         0,
-//                         0,
-//                         145,
-//                         0,
-//                         0,
-//                         0,
-//                         147,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         140,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         152,
-//                         0,
-//                         0,
-//                         0,
-//                         149,
-//                         0,
-//                         0,
-//                         0,
-//                         150,
-//                         0,
-//                         0,
-//                         0,
-//                         149,
-//                         0,
-//                         0,
-//                         0,
-//                         145,
-//                         0,
-//                         0,
-//                         0,
-//                         147,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 }
-//             ]
-//         },
-//         {
-//             "osc1_oct": 7,
-//             "osc1_det": 0,
-//             "osc1_detune": 0,
-//             "osc1_xenv": 1,
-//             "osc1_vol": 123,
-//             "osc1_waveform": 1,
-//             "osc2_oct": 8,
-//             "osc2_det": 0,
-//             "osc2_detune": 25,
-//             "osc2_xenv": 1,
-//             "osc2_vol": 166,
-//             "osc2_waveform": 0,
-//             "noise_fader": 0,
-//             "env_attack": 37768,
-//             "env_sustain": 19084,
-//             "env_release": 24610,
-//             "env_master": 43,
-//             "fx_filter": 4,
-//             "fx_freq": 4798,
-//             "fx_resonance": 167,
-//             "fx_delay_time": 8,
-//             "fx_delay_amt": 93,
-//             "fx_pan_freq": 6,
-//             "fx_pan_amt": 61,
-//             "lfo_osc1_freq": 0,
-//             "lfo_fx_freq": 1,
-//             "lfo_freq": 3,
-//             "lfo_amt": 67,
-//             "lfo_waveform": 0,
-//             "p": [
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 0,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 3,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 3,
-//                 5,
-//                 5,
-//                 5,
-//                 5,
-//                 5,
-//                 5,
-//                 5,
-//                 6,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 2,
-//                 3
-//             ],
-//             "c": [
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         135,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         137,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         147,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 },
-//                 {
-//                     "n": [
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         149,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0,
-//                         0
-//                     ]
-//                 }
-//             ]
-//         }
-//     ],
-//     "songLen": 80
-// };
+//------------------------------------------------------------
+// Song
+//------------------------------------------------------------
+var song = {
+    "rowLen": 2242,
+    "endPattern": 49,
+    "songData": [
+        {
+            "osc1_oct": 7,
+            "osc1_det": 0,
+            "osc1_detune": 0,
+            "osc1_xenv": 1,
+            "osc1_vol": 255,
+            "osc1_waveform": 0,
+            "osc2_oct": 7,
+            "osc2_det": 0,
+            "osc2_detune": 0,
+            "osc2_xenv": 1,
+            "osc2_vol": 255,
+            "osc2_waveform": 0,
+            "noise_fader": 0,
+            "env_attack": 50,
+            "env_sustain": 150,
+            "env_release": 4800,
+            "env_master": 200,
+            "fx_filter": 2,
+            "fx_freq": 600,
+            "fx_resonance": 254,
+            "fx_delay_time": 0,
+            "fx_delay_amt": 0,
+            "fx_pan_freq": 0,
+            "fx_pan_amt": 0,
+            "lfo_osc1_freq": 0,
+            "lfo_fx_freq": 0,
+            "lfo_freq": 0,
+            "lfo_amt": 0,
+            "lfo_waveform": 0,
+            "p": [
+                1,
+                1,
+                1,
+                2,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                3,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                3,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                3,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                3,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                3,
+                1,
+                1,
+                1,
+                2
+            ],
+            "c": [
+                {
+                    "n": [
+                        128,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        128,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        128,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        128,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                }
+            ]
+        },
+        {
+            "osc1_oct": 8,
+            "osc1_det": 0,
+            "osc1_detune": 0,
+            "osc1_xenv": 1,
+            "osc1_vol": 160,
+            "osc1_waveform": 0,
+            "osc2_oct": 8,
+            "osc2_det": 0,
+            "osc2_detune": 0,
+            "osc2_xenv": 1,
+            "osc2_vol": 160,
+            "osc2_waveform": 0,
+            "noise_fader": 210,
+            "env_attack": 50,
+            "env_sustain": 200,
+            "env_release": 6800,
+            "env_master": 160,
+            "fx_filter": 4,
+            "fx_freq": 11025,
+            "fx_resonance": 254,
+            "fx_delay_time": 6,
+            "fx_delay_amt": 0,
+            "fx_pan_freq": 5,
+            "fx_pan_amt": 61,
+            "lfo_osc1_freq": 0,
+            "lfo_fx_freq": 1,
+            "lfo_freq": 4,
+            "lfo_amt": 0,
+            "lfo_waveform": 0,
+            "p": [
+                1,
+                1,
+                1,
+                2,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                2,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                2,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                2,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                2,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1
+            ],
+            "c": [
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        128,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                }
+            ]
+        },
+        {
+            "osc1_oct": 6,
+            "osc1_det": 0,
+            "osc1_detune": 0,
+            "osc1_xenv": 0,
+            "osc1_vol": 255,
+            "osc1_waveform": 1,
+            "osc2_oct": 7,
+            "osc2_det": 0,
+            "osc2_detune": 0,
+            "osc2_xenv": 0,
+            "osc2_vol": 154,
+            "osc2_waveform": 1,
+            "noise_fader": 0,
+            "env_attack": 197,
+            "env_sustain": 88,
+            "env_release": 10614,
+            "env_master": 45,
+            "fx_filter": 2,
+            "fx_freq": 4425,
+            "fx_resonance": 163,
+            "fx_delay_time": 8,
+            "fx_delay_amt": 119,
+            "fx_pan_freq": 3,
+            "fx_pan_amt": 158,
+            "lfo_osc1_freq": 0,
+            "lfo_fx_freq": 0,
+            "lfo_freq": 0,
+            "lfo_amt": 0,
+            "lfo_waveform": 0,
+            "p": [
+                2,
+                3,
+                2,
+                3,
+                2,
+                3,
+                2,
+                3,
+                2,
+                3,
+                4,
+                5,
+                2,
+                3,
+                2,
+                3,
+                2,
+                3,
+                4,
+                5,
+                2,
+                3,
+                2,
+                3,
+                2,
+                3,
+                4,
+                5,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                2,
+                3,
+                2,
+                3,
+                2,
+                3,
+                4,
+                5,
+                2,
+                3,
+                2,
+                2
+            ],
+            "c": [
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        133,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        135,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        135,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        143,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        142,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        133,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        133,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        137,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        138,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                }
+            ]
+        },
+        {
+            "osc1_oct": 7,
+            "osc1_det": 0,
+            "osc1_detune": 0,
+            "osc1_xenv": 1,
+            "osc1_vol": 144,
+            "osc1_waveform": 3,
+            "osc2_oct": 6,
+            "osc2_det": 0,
+            "osc2_detune": 9,
+            "osc2_xenv": 1,
+            "osc2_vol": 162,
+            "osc2_waveform": 0,
+            "noise_fader": 255,
+            "env_attack": 663,
+            "env_sustain": 0,
+            "env_release": 1584,
+            "env_master": 37,
+            "fx_filter": 1,
+            "fx_freq": 6531,
+            "fx_resonance": 132,
+            "fx_delay_time": 12,
+            "fx_delay_amt": 9,
+            "fx_pan_freq": 0,
+            "fx_pan_amt": 0,
+            "lfo_osc1_freq": 0,
+            "lfo_fx_freq": 0,
+            "lfo_freq": 5,
+            "lfo_amt": 0,
+            "lfo_waveform": 0,
+            "p": [
+                0,
+                0,
+                0,
+                0,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                3,
+                3,
+                3,
+                3,
+                3,
+                3,
+                3,
+                3,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                0,
+                0
+            ],
+            "c": [
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        140,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        145,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        147,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        152,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        152,
+                        0,
+                        0,
+                        0,
+                        152,
+                        0,
+                        0,
+                        0,
+                        152,
+                        0,
+                        0,
+                        0,
+                        152,
+                        0,
+                        0,
+                        0,
+                        152,
+                        0,
+                        0,
+                        0,
+                        152,
+                        0,
+                        0,
+                        0,
+                        152,
+                        0,
+                        0,
+                        0,
+                        152,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        152,
+                        0,
+                        152,
+                        0,
+                        152,
+                        0,
+                        0,
+                        0,
+                        152,
+                        0,
+                        152,
+                        0,
+                        152,
+                        0,
+                        0,
+                        0,
+                        152,
+                        0,
+                        152,
+                        0,
+                        152,
+                        0,
+                        0,
+                        0,
+                        152,
+                        0,
+                        152,
+                        0,
+                        152,
+                        0,
+                        0,
+                        0
+                    ]
+                }
+            ]
+        },
+        {
+            "osc1_oct": 7,
+            "osc1_det": 0,
+            "osc1_detune": 0,
+            "osc1_xenv": 0,
+            "osc1_vol": 63,
+            "osc1_waveform": 2,
+            "osc2_oct": 7,
+            "osc2_det": 0,
+            "osc2_detune": 0,
+            "osc2_xenv": 0,
+            "osc2_vol": 125,
+            "osc2_waveform": 0,
+            "noise_fader": 0,
+            "env_attack": 444,
+            "env_sustain": 3706,
+            "env_release": 10614,
+            "env_master": 124,
+            "fx_filter": 0,
+            "fx_freq": 2727,
+            "fx_resonance": 199,
+            "fx_delay_time": 0,
+            "fx_delay_amt": 125,
+            "fx_pan_freq": 3,
+            "fx_pan_amt": 47,
+            "lfo_osc1_freq": 1,
+            "lfo_fx_freq": 0,
+            "lfo_freq": 14,
+            "lfo_amt": 0,
+            "lfo_waveform": 1,
+            "p": [
+                0,
+                0,
+                0,
+                0,
+                2,
+                2,
+                2,
+                2,
+                2,
+                2,
+                3,
+                4,
+                2,
+                2,
+                2,
+                2,
+                2,
+                2,
+                3,
+                4,
+                2,
+                2,
+                2,
+                2,
+                2,
+                2,
+                3,
+                4,
+                2,
+                2,
+                2,
+                2,
+                2,
+                2,
+                3,
+                4,
+                2,
+                2,
+                2,
+                2,
+                2,
+                2,
+                3,
+                4
+            ],
+            "c": [
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        159,
+                        0,
+                        0,
+                        0,
+                        157,
+                        0,
+                        157,
+                        0,
+                        0,
+                        0,
+                        157,
+                        0,
+                        0,
+                        0,
+                        152,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        123,
+                        0,
+                        0,
+                        0,
+                        126,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0,
+                        130,
+                        0,
+                        0,
+                        0,
+                        131,
+                        0,
+                        0,
+                        0,
+                        130,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        130,
+                        0,
+                        0,
+                        0,
+                        131,
+                        0,
+                        0,
+                        0,
+                        128,
+                        0,
+                        0,
+                        0,
+                        126,
+                        0,
+                        0,
+                        0,
+                        125,
+                        0,
+                        0,
+                        0,
+                        123,
+                        0,
+                        0,
+                        0,
+                        121,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        123,
+                        0,
+                        0,
+                        0,
+                        121,
+                        0,
+                        0,
+                        0,
+                        123,
+                        0,
+                        0,
+                        0,
+                        125,
+                        0,
+                        0,
+                        0,
+                        126,
+                        0,
+                        0,
+                        0,
+                        125,
+                        0,
+                        0,
+                        0,
+                        121,
+                        0,
+                        0,
+                        0,
+                        123,
+                        0,
+                        0,
+                        0
+                    ]
+                }
+            ]
+        },
+        {
+            "osc1_oct": 9,
+            "osc1_det": 0,
+            "osc1_detune": 0,
+            "osc1_xenv": 1,
+            "osc1_vol": 64,
+            "osc1_waveform": 1,
+            "osc2_oct": 5,
+            "osc2_det": 0,
+            "osc2_detune": 0,
+            "osc2_xenv": 0,
+            "osc2_vol": 128,
+            "osc2_waveform": 3,
+            "noise_fader": 0,
+            "env_attack": 1776,
+            "env_sustain": 7105,
+            "env_release": 19736,
+            "env_master": 119,
+            "fx_filter": 1,
+            "fx_freq": 1523,
+            "fx_resonance": 128,
+            "fx_delay_time": 10,
+            "fx_delay_amt": 39,
+            "fx_pan_freq": 3,
+            "fx_pan_amt": 92,
+            "lfo_osc1_freq": 0,
+            "lfo_fx_freq": 1,
+            "lfo_freq": 2,
+            "lfo_amt": 0,
+            "lfo_waveform": 3,
+            "p": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                2,
+                2,
+                2,
+                3,
+                2,
+                2,
+                2,
+                7,
+                2,
+                2,
+                2,
+                3,
+                2,
+                2,
+                2,
+                7,
+                8,
+                8,
+                8,
+                8,
+                8,
+                8,
+                9,
+                10,
+                2,
+                2,
+                2,
+                2,
+                2,
+                2,
+                3,
+                7
+            ],
+            "c": [
+                {
+                    "n": [
+                        140,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        147,
+                        0,
+                        0,
+                        0,
+                        145,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        133,
+                        0,
+                        0,
+                        0,
+                        135,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        130,
+                        0,
+                        0,
+                        0,
+                        133,
+                        0,
+                        0,
+                        0,
+                        135,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        145,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        145,
+                        0,
+                        0,
+                        0,
+                        147,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        135,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        145,
+                        0,
+                        0,
+                        0,
+                        147,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        137,
+                        0,
+                        0,
+                        0,
+                        138,
+                        0,
+                        0,
+                        0,
+                        137,
+                        0,
+                        0,
+                        0,
+                        133,
+                        0,
+                        0,
+                        0,
+                        135,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        135,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        145,
+                        0,
+                        0,
+                        0,
+                        147,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        137,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        142,
+                        0,
+                        0,
+                        0,
+                        145,
+                        0,
+                        0,
+                        0,
+                        147,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        140,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        152,
+                        0,
+                        0,
+                        0,
+                        149,
+                        0,
+                        0,
+                        0,
+                        150,
+                        0,
+                        0,
+                        0,
+                        149,
+                        0,
+                        0,
+                        0,
+                        145,
+                        0,
+                        0,
+                        0,
+                        147,
+                        0,
+                        0,
+                        0
+                    ]
+                }
+            ]
+        },
+        {
+            "osc1_oct": 7,
+            "osc1_det": 0,
+            "osc1_detune": 0,
+            "osc1_xenv": 1,
+            "osc1_vol": 123,
+            "osc1_waveform": 1,
+            "osc2_oct": 8,
+            "osc2_det": 0,
+            "osc2_detune": 25,
+            "osc2_xenv": 1,
+            "osc2_vol": 166,
+            "osc2_waveform": 0,
+            "noise_fader": 0,
+            "env_attack": 37768,
+            "env_sustain": 19084,
+            "env_release": 24610,
+            "env_master": 43,
+            "fx_filter": 4,
+            "fx_freq": 4798,
+            "fx_resonance": 167,
+            "fx_delay_time": 8,
+            "fx_delay_amt": 93,
+            "fx_pan_freq": 6,
+            "fx_pan_amt": 61,
+            "lfo_osc1_freq": 0,
+            "lfo_fx_freq": 1,
+            "lfo_freq": 3,
+            "lfo_amt": 67,
+            "lfo_waveform": 0,
+            "p": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                2,
+                2,
+                2,
+                2,
+                2,
+                2,
+                3,
+                2,
+                2,
+                2,
+                2,
+                2,
+                2,
+                2,
+                3,
+                5,
+                5,
+                5,
+                5,
+                5,
+                5,
+                5,
+                6,
+                2,
+                2,
+                2,
+                2,
+                2,
+                2,
+                2,
+                3
+            ],
+            "c": [
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        135,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        137,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        147,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                },
+                {
+                    "n": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        149,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                }
+            ]
+        }
+    ],
+    "songLen": 80
+};
 //------------------------------------------------------------
 // Time functions
 //------------------------------------------------------------
@@ -4030,16 +4093,38 @@ function isBetterTime(time) {
 }
 async function main() {
   setFontMeasurement();
+  getBestTime();
+  loadingScene.show();
 
-  // var songGen = new sonantx.MusicGenerator(song);
-  // songGen.createAudio(function(audio) {
-  //   audio.play();
-  // });
+  // i couldn't figure out how to transform a buffer into an audio element or
+  // vise versa, so we're just going to do the work twice
+  let songGen = new sonantx.MusicGenerator(song);
+  let promises = [];
+
+  promises.push(new Promise((resolve) => {
+    songGen.createAudio(function(a) {
+      audio = a;
+      console.log("audio")
+      resolve();
+    });
+  }), new Promise((resolve) => {
+    songGen.createAudioBuffer(function(b) {
+      buffer = b;
+      console.log("buffer")
+      resolve();
+    });
+  }));
+
+  Promise.all(promises).then(() => {
+    generateWaveData();
+    loadingScene.hide(() => {
+      menuScene.show(() => startBtn.focus());
+    });
+  });
 
   // music from https://opengameart.org/content/adventure-theme
-  await generateWaveData('./' + songName);
-  getBestTime();
-  menuScene.show(() => startBtn.focus());
+  // await fetchAudio('./' + songName);
+  // menuScene.show(() => startBtn.focus());
 }
 
 main();

@@ -121,7 +121,7 @@ menuScene.add({
     // neonText('Ride the Wave', 200, 360, 0, 163, 220);
     ctx.fillStyle = '#fff';
     ctx.font = "30px 'Lucida Console', Monaco, monospace"
-    ctx.fillText('Ride the Wave', 202, 360);
+    ctx.fillText('Play the Wave', 202, 360);
 
     return '';
   }
@@ -144,8 +144,6 @@ let uploadBtn = Button({
   text: 'UPLOAD SONG',
   onDown() {
     uploadFile.click();
-    menuScene.hide();
-    uploadScene.show();
   }
 });
 let optionsBtn = Button({
@@ -165,11 +163,11 @@ menuScene.add(startBtn, uploadBtn, optionsBtn);
 
 
 //------------------------------------------------------------
-// Upload Scene
+// Loading Scene
 //------------------------------------------------------------
-let uploadScene = Scene('upload');
+let loadingScene = Scene('upload');
 let loadingTimer = 0;
-let uploadText = Text({
+let loadingText = Text({
   x: 245,
   y: kontra.canvas.height / 2,
   text() {
@@ -191,7 +189,7 @@ let uploadText = Text({
     return text;
   }
 });
-uploadScene.add(uploadText);
+loadingScene.add(loadingText);
 
 
 
@@ -474,7 +472,9 @@ let menuBtn = Button({
   prev: restartBtn,
   text: 'MAIN MENU',
   onDown() {
-    gameScene.hide();
+    gameScene.hide(() => {
+      showTutorialBars = false;
+    });
     gameOverScene.hide(() => {
       menuScene.show(() => startBtn.domEl.focus());
     });
